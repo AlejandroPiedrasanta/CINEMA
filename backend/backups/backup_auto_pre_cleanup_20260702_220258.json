@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "created_at": "2026-07-02T04:13:53.755632+00:00",
+    "created_at": "2026-07-02T22:02:58.540719+00:00",
     "label": "auto_pre_cleanup"
   },
   "reservations": [
@@ -228,6 +228,9 @@
       "telegram_bot_token": "",
       "telegram_chat_id": "",
       "telegram_enabled": true,
+      "appearance_snapshot": {},
+      "appearance_updated_at": "2026-07-02T05:01:12.596492+00:00",
+      "page_protection_enabled": false,
       "id": "69e6fe9ae84ab7ee1b20dcad"
     }
   ]
