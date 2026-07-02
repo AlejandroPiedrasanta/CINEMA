@@ -183,6 +183,8 @@ export default function UpdatesPage() {
           <button type="button"
             onClick={() => { changeAutoCheckUpdates(!autoCheckUpdates); toast({ title: !autoCheckUpdates ? "Chequeo automático activado ✓" : "Chequeo automático desactivado" }); }}
             data-testid="auto-check-toggle"
+            role="switch"
+            aria-checked={autoCheckUpdates}
             className={`relative w-12 h-6 rounded-full transition-all flex-shrink-0 ${autoCheckUpdates ? "btn-primary" : "bg-slate-200"}`}>
             <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${autoCheckUpdates ? "left-[26px]" : "left-0.5"}`} />
           </button>

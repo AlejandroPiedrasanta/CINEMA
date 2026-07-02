@@ -136,7 +136,6 @@ Contiene claves de apariencia + configuración de negocio:
 ### P2 — Futuro
 - Portal para clientes con link único
 - Integración de pagos online Stripe/Wompi
-- Función de "Temas guardados" en Apariencia
 
 ---
 
@@ -159,3 +158,10 @@ Contiene claves de apariencia + configuración de negocio:
 - 2026-04-22: **Socios: Panel asignar evento** con toggle Pendiente↔Pagado
 - 2026-04-22: **Reservaciones mejoradas**: paginación 8+mostrar más, filtros extra (paquete, rango fechas), orden fecha más cercana. **Calendario**: pastillas siempre muestran tipo de evento.
 - 2026-07-02: **Base de Datos mejorada**: (1) Sección "Actualizaciones guardadas" — lista de versiones almacenadas en la DB con versión, canal, tamaño, fecha y botón eliminar. (2) 3 modos de conexión: URL completa | Por IP/campos (host+puerto+user+pass+db auto-genera la URL) | NAS/Red local (igual con UI específica para NAS). (3) 4 opciones toggle: auto-probar antes de conectar, notificar al cambiar, mostrar URL completa, comprimir respaldos.
+- 2026-07-02: **Mega actualización de UX (6 features, testeadas 100%)**:
+  1. **Actualizaciones en línea**: botón "Buscar actualización en línea" (`GET /api/updates/check`), anuncio ANIMADO verde "¡Ya estás actualizado! 🎉" con anillos pulsantes, toggle de chequeo automático (`auto_check_updates`, respetado también por el banner del escritorio en Layout).
+  2. **Apariencia contraíble + buscador**: todas las secciones de Apariencia y Ajustes ahora son acordeones colapsables (`SectionShell.jsx` compartido) con buscador inteligente sin acentos que filtra secciones por su contenido interno (`sectionSearch.js`).
+  3. **Menú personalizable**: nueva sección "Menú de Navegación" — reordenar con flechas y renombrar los items del sidebar en tiempo real (`navConfig` en SettingsContext, consumido por Layout).
+  4. **Temas guardados + sync nube**: guardar apariencia con nombre ilimitados (`saved_themes` collection, GET/POST/DELETE `/api/themes`), aplicar/eliminar, restaurar por defecto. La apariencia activa se sube sola a MongoDB (`PUT /api/settings/appearance`, debounce 2s) y todos los dispositivos (web + escritorio, misma BD) la aplican al arrancar (pull en mount + reload si difiere; snapshot vacío = local gana). Mirroreado en `standalone_app.py` + persistencia embebida.
+  5. **Modo DaVinci Resolve**: sección "Modo de Diseño Global" — transforma TODA la app a paneles oscuros tipo collage con bordes, esquinas rectas y acento naranja (`html[data-ui-mode="davinci"]` en index.css).
+  6. **Tutorial de bienvenida (18 pasos)**: `WelcomeTour.jsx` aparece la primera vez (localStorage `tour_done`), navega automáticamente por todas las páginas con spotlight sobre elementos, Anterior/Siguiente/Saltar; desactivable y relanzable desde Apariencia → Tutorial de Bienvenida.
