@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload, Trash2, Download, Star, RefreshCw, Package,
-  Clock, FileArchive, ArrowRight, Monitor, Cloud, CheckCircle2
+  Clock, FileArchive, ArrowRight, Monitor, Cloud, CheckCircle2, Database
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getUpdatesHistory, uploadAppUpdate, deleteUpdate, setLatestUpdate, getUpdateDownloadUrl } from "@/lib/api";
@@ -29,10 +29,10 @@ const CHANNEL_LABELS = { stable: "Estable", beta: "Beta", alpha: "Alpha" };
 
 // How-it-works steps
 const STEPS = [
-  { icon: Cloud, label: "Actualizas el código en la app web", sub: "Haces cambios aquí en la nube" },
-  { icon: Download, label: "Ajustes → Descargar para Windows", sub: "Descarga el nuevo ZIP desde Ajustes" },
-  { icon: Upload, label: "Sube el ZIP aquí (Actualizaciones)", sub: "Pégalo en el formulario de abajo" },
-  { icon: Monitor, label: "La App de Escritorio lo detecta", sub: "Muestra una notificación automática con botón de descarga" },
+  { icon: Cloud, label: "Actualizas el código aquí", sub: "Haces cambios en la app web" },
+  { icon: Download, label: "Ajustes → Descargar para Windows", sub: "Se registra automáticamente en la base de datos" },
+  { icon: Database, label: "Todas las apps lo detectan", sub: "Al compartir la misma base de datos, todas ven la nueva versión" },
+  { icon: Monitor, label: "Notificación automática", sub: "La app muestra un aviso con botón para descargar" },
 ];
 
 export default function UpdatesPage() {
@@ -153,7 +153,13 @@ export default function UpdatesPage() {
       {/* Upload form */}
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
         className="glass rounded-3xl p-6 mb-5 space-y-5">
-        <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">Subir nueva versión</h2>
+        <div>
+          <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">Subir versión manualmente</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Las versiones descargadas desde <strong>Ajustes → App para Windows</strong> se registran automáticamente. 
+            Usa este formulario solo si necesitas subir un archivo diferente.
+          </p>
+        </div>
 
         {/* Version + Channel */}
         <div className="flex gap-3">
@@ -187,7 +193,7 @@ export default function UpdatesPage() {
         {/* File drop */}
         <div>
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5 block">
-            Archivo ZIP descargado de Ajustes *
+            Archivo (EXE, ZIP, MSI...) *
           </label>
           <motion.div whileHover={{ scale: 1.005 }}
             onDrop={handleFileDrop}
@@ -214,7 +220,7 @@ export default function UpdatesPage() {
                   <Upload size={22} className="text-indigo-500" />
                 </div>
                 <p className="text-sm font-bold text-slate-600">Arrastra el ZIP aquí o haz clic para seleccionar</p>
-                <p className="text-xs text-slate-400 mt-1">El archivo ZIP descargado desde Ajustes → App para Windows</p>
+                <p className="text-xs text-slate-400 mt-1">Cualquier formato · EXE, ZIP, MSI, etc.</p>
               </>
             )}
             <input ref={fileRef} type="file" className="hidden" data-testid="file-input"
@@ -252,8 +258,8 @@ export default function UpdatesPage() {
         ) : history.length === 0 ? (
           <div className="py-16 text-center">
             <Package size={36} className="mx-auto text-slate-200 mb-3" />
-            <p className="text-slate-400 text-sm font-medium">Aún no has subido ninguna versión</p>
-            <p className="text-slate-300 text-xs mt-1">Descarga el ZIP desde Ajustes y súbelo aquí</p>
+            <p className="text-slate-400 text-sm font-medium">Aún no hay versiones registradas</p>
+            <p className="text-slate-300 text-xs mt-1">Ve a <strong>Ajustes → App para Windows</strong> y descarga la app — se registrará automáticamente aquí</p>
           </div>
         ) : (
           <div className="divide-y divide-white/20">

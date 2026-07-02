@@ -46,7 +46,9 @@ BACKUP_COLLECTIONS = ['reservations', 'socios', 'app_settings']
 
 # ── Auto-update config ────────────────────────────────────────────────────────
 _UPDATE_SERVER_FILE = ROOT_DIR / 'update_server_url.txt'
+_VERSION_FILE = ROOT_DIR / 'version.txt'
 _update_server_url = _UPDATE_SERVER_FILE.read_text().strip() if _UPDATE_SERVER_FILE.exists() else ""
+_local_version = _VERSION_FILE.read_text().strip() if _VERSION_FILE.exists() else "0.0.0"
 _update_status: dict = {"checked": False, "has_update": False}
 
 # ── Determine effective MongoDB URL (override file takes priority) ────────────
@@ -1116,36 +1118,38 @@ async def trigger_reminders_manual():
 
 
 
-# ── Auto-update detection ─────────────────────────────────────────────────────
+# ── Auto-update detection (via shared MongoDB) ────────────────────────────────
 
 async def _check_for_updates():
-    """Called once at startup. Checks remote server for a newer version."""
+    """
+    Queries the shared MongoDB database DIRECTLY for newer versions.
+    No HTTP calls needed — all Desktop Apps share the same database.
+    """
     global _update_status
-    if not _update_server_url:
-        _update_status = {"checked": True, "has_update": False}
-        return
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=8) as client:
-            r = await client.get(f"{_update_server_url}/api/updates/latest")
-            if r.status_code == 200:
-                remote = r.json()
-                # Get current local version (stored in settings or defaults to 0.0.0)
-                local_settings = await db.app_settings.find_one({"key": "local_version"})
-                local_ver = local_settings["value"] if local_settings else "0.0.0"
-                has_update = remote["version"] != local_ver
-                _update_status = {
-                    "checked": True,
-                    "has_update": has_update,
-                    "remote_version": remote["version"],
-                    "local_version": local_ver,
-                    "filename": remote["filename"],
-                    "notes": remote.get("notes", ""),
-                    "file_size": remote.get("file_size", 0),
-                    "download_url": f"{_update_server_url}/api/updates/download/{remote['id']}",
-                }
-            else:
-                _update_status = {"checked": True, "has_update": False}
+        latest = await db.app_updates.find_one({"is_latest": True}, sort=[("created_at", -1)])
+        if not latest:
+            _update_status = {"checked": True, "has_update": False}
+            return
+
+        has_update = latest["version"] != _local_version
+
+        dl_url = ""
+        if _update_server_url:
+            dl_url = f"{_update_server_url}/api/updates/download"
+
+        _update_status = {
+            "checked": True,
+            "has_update": has_update,
+            "remote_version": latest["version"],
+            "local_version": _local_version,
+            "filename": latest["filename"],
+            "notes": latest.get("notes", ""),
+            "file_size": latest.get("file_size", 0),
+            "download_url": dl_url,
+        }
+        if has_update:
+            logger.warning(f"Update available: {_local_version} → {latest['version']}")
     except Exception as e:
         logger.warning(f"Update check failed: {e}")
         _update_status = {"checked": True, "has_update": False}
@@ -1153,20 +1157,17 @@ async def _check_for_updates():
 
 @api_router.get("/updates/check")
 async def check_for_updates_endpoint():
-    """Frontend calls this to know if an update is available."""
+    """Frontend calls this to get update status (checked against shared MongoDB)."""
+    # Re-check if not yet done
+    if not _update_status.get("checked"):
+        await _check_for_updates()
     return _update_status
 
 
 @api_router.post("/updates/dismiss")
 async def dismiss_update():
-    """User dismissed the update banner — remember current remote version."""
+    """User dismissed the update banner."""
     global _update_status
-    if _update_status.get("has_update") and _update_status.get("remote_version"):
-        await db.app_settings.update_one(
-            {"key": "local_version"},
-            {"$set": {"key": "local_version", "value": _update_status["remote_version"]}},
-            upsert=True,
-        )
     _update_status = {**_update_status, "has_update": False}
     return {"message": "OK"}
 

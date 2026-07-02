@@ -2258,10 +2258,11 @@ async def download_package(request: Request):
             detail="El paquete aun no esta listo. Espera 2 minutos e intentalo de nuevo."
         )
 
-    # Embed the cloud server URL so Desktop App knows where to check for updates
     cloud_url = str(request.base_url).rstrip("/")
-
     standalone_py = (ROOT_DIR / 'standalone_app.py').read_text()
+
+    # Auto-version based on timestamp
+    auto_version = datetime.now(timezone.utc).strftime("%Y.%m.%d.%H%M")
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -2273,19 +2274,40 @@ async def download_package(request: Request):
         zf.writestr('cinema-productions/start.bat', _START_BAT)
         zf.writestr('cinema-productions/start.sh', _START_SH)
         zf.writestr('cinema-productions/README.txt', _README)
-        # Embed cloud URL for automatic update detection
+        # Embed cloud URL + this version so Desktop App knows its own version
         zf.writestr('cinema-productions/update_server_url.txt', cloud_url)
+        zf.writestr('cinema-productions/version.txt', auto_version)
 
         for file_path in sorted(build_dir.rglob('*')):
             if file_path.is_file():
                 arc_name = 'cinema-productions/build/' + str(file_path.relative_to(build_dir))
                 zf.write(str(file_path), arc_name)
 
-    buf.seek(0)
+    zip_bytes = buf.getvalue()
+    filename = f"cinema-productions-{auto_version}.zip"
+    safe_name = f"auto_{auto_version.replace('.', '_')}.zip"
+    file_path = UPDATES_DIR / safe_name
+    file_path.write_bytes(zip_bytes)
+
+    # Auto-register this version in the shared MongoDB database
+    await db.app_updates.update_many({}, {"$set": {"is_latest": False}})
+    update_doc = {
+        "version": auto_version,
+        "filename": filename,
+        "stored_name": safe_name,
+        "notes": "Generada automáticamente al descargar desde Ajustes",
+        "channel": "stable",
+        "file_size": len(zip_bytes),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "is_latest": True,
+        "download_url": f"{cloud_url}/api/updates/download",
+    }
+    await db.app_updates.insert_one(update_doc)
+
     return Response(
-        content=buf.read(),
+        content=zip_bytes,
         media_type='application/zip',
-        headers={'Content-Disposition': 'attachment; filename=cinema-productions-local.zip'}
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
 
 
@@ -2356,6 +2378,28 @@ async def get_update_history():
         }
         for d in docs
     ]
+
+
+@api_router.get("/updates/download")
+async def download_latest_update():
+    """Download the currently active (is_latest) update file."""
+    doc = await db.app_updates.find_one({"is_latest": True}, sort=[("created_at", -1)])
+    if not doc:
+        raise HTTPException(status_code=404, detail="No hay actualización activa")
+    file_path = UPDATES_DIR / doc["stored_name"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado en el servidor")
+
+    def iter_file():
+        with open(file_path, "rb") as f:
+            while chunk := f.read(1024 * 1024):
+                yield chunk
+
+    return StreamingResponse(
+        iter_file(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{doc["filename"]}"'},
+    )
 
 
 @api_router.get("/updates/download/{update_id}")
