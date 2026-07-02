@@ -7,6 +7,7 @@ import {
   ShieldCheck, Link2, ArrowRight, FolderOpen, Zap, Timer,
   Play, Square, RotateCcw, Folder, FileSpreadsheet, Plus,
   Star, Bookmark, ChevronDown, Sparkles, Scissors,
+  Network, Server, ToggleLeft, ToggleRight, Package, Globe, MonitorSpeaker,
 } from "lucide-react";
 import { useSettings } from "@/context/SettingsContext";
 import { useToast } from "@/hooks/use-toast";
@@ -107,6 +108,55 @@ export default function DatabasePage() {
   const [showClear, setShowClear]       = useState(false);
   const [clearLoading, setClearLoading] = useState(false);
 
+  // ── Connection mode ────────────────────────────────────────────────────────
+  const [connMode, setConnMode] = useState("url"); // "url" | "fields" | "nas"
+  const [connFields, setConnFields] = useState({ host: "", port: "27017", user: "", pass: "", db: "cinema_events" });
+
+  const buildUrlFromFields = () => {
+    const { host, port, user, pass, db } = connFields;
+    if (!host.trim()) return "";
+    const base = `${host.trim()}:${port || "27017"}/${db || "cinema_events"}`;
+    return user.trim() && pass.trim()
+      ? `mongodb://${encodeURIComponent(user.trim())}:${encodeURIComponent(pass.trim())}@${base}`
+      : `mongodb://${base}`;
+  };
+
+  const activeConnUrl = connMode === "url" ? newDbUrl : buildUrlFromFields();
+
+  // ── DB Options (toggles) ──────────────────────────────────────────────────
+  const [dbOptions, setDbOptions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("cp_db_options")) || { autoTest: true, notifySwitch: true, showFullUrl: false, compressBackup: false }; }
+    catch { return { autoTest: true, notifySwitch: true, showFullUrl: false, compressBackup: false }; }
+  });
+  const saveDbOption = (key, val) => {
+    const next = { ...dbOptions, [key]: val };
+    setDbOptions(next);
+    localStorage.setItem("cp_db_options", JSON.stringify(next));
+  };
+
+  // ── Actualizaciones en BD ─────────────────────────────────────────────────
+  const [dbUpdates, setDbUpdates] = useState([]);
+  const [updatesLoading, setUpdatesLoading] = useState(false);
+
+  const loadDbUpdates = async () => {
+    setUpdatesLoading(true);
+    try {
+      const r = await fetch(`${BASE}/api/updates/history`);
+      const data = await r.json();
+      setDbUpdates(Array.isArray(data) ? data : []);
+    } catch { setDbUpdates([]); }
+    finally { setUpdatesLoading(false); }
+  };
+
+  const handleDeleteUpdate = async (id) => {
+    if (!window.confirm("¿Eliminar esta versión?")) return;
+    try {
+      await fetch(`${BASE}/api/updates/${id}`, { method: "DELETE" });
+      setDbUpdates(prev => prev.filter(u => u.id !== id));
+      toast({ title: "Versión eliminada de la base de datos" });
+    } catch { toast({ title: "Error al eliminar", variant: "destructive" }); }
+  };
+
   const [backupHistory, setBackupHistory]   = useState([]);
   const [backupCreating, setBackupCreating] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
@@ -140,7 +190,7 @@ export default function DatabasePage() {
 
   useEffect(() => { loadAll(); }, []);
 
-  const loadAll = () => { loadDbStats(); loadBackupHistory(); loadCleanupPreview(); };
+  const loadAll = () => { loadDbStats(); loadBackupHistory(); loadCleanupPreview(); loadDbUpdates(); };
 
   const loadCleanupPreview = async () => {
     try {
@@ -161,10 +211,10 @@ export default function DatabasePage() {
     getBackupHistory().then(setBackupHistory).catch(() => setBackupHistory([]));
 
   const handleDbTest = async () => {
-    if (!newDbUrl.trim()) return;
+    if (!activeConnUrl.trim()) return;
     setDbTesting(true); setDbTestResult(null);
     try {
-      await testDbConnection(newDbUrl.trim());
+      await testDbConnection(activeConnUrl.trim());
       setDbTestResult({ ok: true, msg: s.dbTestOk || "Conexión exitosa" });
     } catch (err) {
       setDbTestResult({ ok: false, msg: err.response?.data?.detail || "Error de conexión" });
@@ -172,13 +222,16 @@ export default function DatabasePage() {
   };
 
   const handleDbConnect = async () => {
-    if (!newDbUrl.trim()) return;
+    if (!activeConnUrl.trim()) return;
     setDbConnecting(true);
     try {
-      await switchDatabase(newDbUrl.trim());
+      if (dbOptions.autoTest) {
+        try { await testDbConnection(activeConnUrl.trim()); }
+        catch { toast({ title: "La prueba de conexión falló. Intenta igualmente.", variant: "destructive" }); }
+      }
+      await switchDatabase(activeConnUrl.trim());
       toast({ title: "Base de datos conectada ✓ — Actualizando..." });
-      setNewDbUrl(""); setDbTestResult(null);
-      // Reload after 1.2s so the new DB is used for all subsequent requests
+      setNewDbUrl(""); setConnFields({ host: "", port: "27017", user: "", pass: "", db: "cinema_events" }); setDbTestResult(null);
       setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
       toast({ title: err.response?.data?.detail || "Error al conectar", variant: "destructive" });
@@ -704,18 +757,144 @@ export default function DatabasePage() {
               {/* ── Cambiar conexión ── */}
               <div className="border-t border-white/30 pt-4 space-y-3">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Cambiar conexión</p>
+
+                {/* Mode tabs */}
+                <div className="flex gap-1 p-1 rounded-2xl bg-slate-100/70">
+                  {[
+                    { key: "url",    icon: Globe,   label: "URL completa" },
+                    { key: "fields", icon: Server,  label: "Por IP/campos" },
+                    { key: "nas",    icon: Network,  label: "NAS / Red local" },
+                  ].map(({ key, icon: Icon, label }) => (
+                    <button key={key} onClick={() => { setConnMode(key); setDbTestResult(null); }}
+                      data-testid={`conn-mode-${key}`}
+                      className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-[11px] font-bold transition-all ${connMode === key ? "bg-white shadow-sm text-indigo-700" : "text-slate-500 hover:text-slate-700"}`}>
+                      <Icon size={12} /> {label}
+                    </button>
+                  ))}
+                </div>
+
                 {dbStats?.connection_error && (
                   <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
-                    onClick={() => setNewDbUrl(dbStats.current_url?.includes("***") ? "" : (dbStats.current_url || ""))}
+                    onClick={() => { setConnMode("url"); setNewDbUrl(dbStats.current_url?.includes("***") ? "" : (dbStats.current_url || "")); }}
                     className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-bold hover:bg-amber-100 transition-all">
                     <Wifi size={12} /> Reintentar con URL actual
                   </motion.button>
                 )}
-                <input type="text" value={newDbUrl}
-                  onChange={e => { setNewDbUrl(e.target.value); setDbTestResult(null); }}
-                  placeholder="mongodb+srv://usuario:contraseña@cluster.mongodb.net"
-                  data-testid="db-url-input"
-                  className="w-full bg-white/60 border border-slate-200/80 rounded-xl px-4 py-3 text-sm font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-transparent" />
+
+                {/* Mode: URL completa */}
+                {connMode === "url" && (
+                  <input type="text" value={newDbUrl}
+                    onChange={e => { setNewDbUrl(e.target.value); setDbTestResult(null); }}
+                    placeholder="mongodb+srv://usuario:contraseña@cluster.mongodb.net"
+                    data-testid="db-url-input"
+                    className="w-full bg-white/60 border border-slate-200/80 rounded-xl px-4 py-3 text-sm font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-transparent" />
+                )}
+
+                {/* Mode: Por IP/campos */}
+                {connMode === "fields" && (
+                  <div className="space-y-2.5 p-4 rounded-2xl bg-slate-50/60 border border-slate-200/50">
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Host / IP *</label>
+                        <input value={connFields.host} onChange={e => setConnFields(p => ({ ...p, host: e.target.value }))}
+                          placeholder="192.168.1.100 o cluster.mongodb.net" data-testid="field-host"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Puerto</label>
+                        <input value={connFields.port} onChange={e => setConnFields(p => ({ ...p, port: e.target.value }))}
+                          placeholder="27017" data-testid="field-port"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Usuario</label>
+                        <input value={connFields.user} onChange={e => setConnFields(p => ({ ...p, user: e.target.value }))}
+                          placeholder="admin" data-testid="field-user"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Contraseña</label>
+                        <input type="password" value={connFields.pass} onChange={e => setConnFields(p => ({ ...p, pass: e.target.value }))}
+                          placeholder="••••••••" data-testid="field-pass"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Base de datos</label>
+                      <input value={connFields.db} onChange={e => setConnFields(p => ({ ...p, db: e.target.value }))}
+                        placeholder="cinema_events" data-testid="field-db"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                    </div>
+                    {buildUrlFromFields() && (
+                      <div className="flex items-center gap-2 bg-indigo-50/50 rounded-xl px-3 py-2">
+                        <Link2 size={10} className="text-indigo-400 shrink-0" />
+                        <p className="text-[10px] font-mono text-indigo-700 truncate">{buildUrlFromFields().replace(/:([^@]+)@/, ":***@")}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Mode: NAS / Red local */}
+                {connMode === "nas" && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-start gap-2.5 bg-blue-50/60 rounded-2xl px-4 py-3 border border-blue-200/50">
+                      <Network size={13} className="text-blue-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[10px] font-bold text-blue-700 mb-0.5">Conexión a NAS o servidor en red</p>
+                        <p className="text-[9px] text-blue-600 leading-relaxed">
+                          Ingresa la IP de tu NAS (Synology, QNAP, etc.) o servidor local con MongoDB. El puerto estándar de MongoDB es <strong>27017</strong>.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 p-4 rounded-2xl bg-slate-50/60 border border-slate-200/50">
+                      <div className="col-span-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">IP del NAS / Servidor *</label>
+                        <input value={connFields.host} onChange={e => setConnFields(p => ({ ...p, host: e.target.value }))}
+                          placeholder="192.168.1.50" data-testid="nas-field-host"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Puerto MongoDB</label>
+                        <input value={connFields.port} onChange={e => setConnFields(p => ({ ...p, port: e.target.value }))}
+                          placeholder="27017" data-testid="nas-field-port"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                      </div>
+                      <div className="col-span-3 grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Usuario MongoDB</label>
+                          <input value={connFields.user} onChange={e => setConnFields(p => ({ ...p, user: e.target.value }))}
+                            placeholder="admin" data-testid="nas-field-user"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Contraseña</label>
+                          <input type="password" value={connFields.pass} onChange={e => setConnFields(p => ({ ...p, pass: e.target.value }))}
+                            placeholder="••••••••" data-testid="nas-field-pass"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                        </div>
+                      </div>
+                      <div className="col-span-3">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1 block">Base de datos</label>
+                        <input value={connFields.db} onChange={e => setConnFields(p => ({ ...p, db: e.target.value }))}
+                          placeholder="cinema_events" data-testid="nas-field-db"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                      </div>
+                      {buildUrlFromFields() && (
+                        <div className="col-span-3 flex items-center gap-2 bg-blue-50/50 rounded-xl px-3 py-2">
+                          <Link2 size={10} className="text-blue-400 shrink-0" />
+                          <p className="text-[10px] font-mono text-blue-700 truncate">{buildUrlFromFields().replace(/:([^@]+)@/, ":***@")}</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-start gap-2 bg-amber-50/60 rounded-2xl px-4 py-3 border border-amber-200/50 text-[9px] text-amber-700">
+                      <AlertCircle size={11} className="shrink-0 mt-0.5" />
+                      <span>Asegúrate que MongoDB esté instalado en el NAS y que el puerto 27017 esté abierto en el firewall de tu red local.</span>
+                    </div>
+                  </div>
+                )}
+
                 {dbTestResult && (
                   <div className={`flex items-center gap-2 text-xs font-semibold px-3 py-2.5 rounded-xl ${dbTestResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60" : "bg-red-50 text-red-600 border border-red-200/60"}`}>
                     {dbTestResult.ok ? <CheckCircle size={13} /> : <XCircle size={13} />}
@@ -724,13 +903,13 @@ export default function DatabasePage() {
                 )}
                 <div className="flex gap-2">
                   <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-                    onClick={handleDbTest} disabled={!newDbUrl.trim() || dbTesting} data-testid="db-test-btn"
+                    onClick={handleDbTest} disabled={!activeConnUrl.trim() || dbTesting} data-testid="db-test-btn"
                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition-all disabled:opacity-40">
                     {dbTesting ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />}
                     Probar
                   </motion.button>
                   <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-                    onClick={handleDbConnect} disabled={!newDbUrl.trim() || dbConnecting} data-testid="db-connect-btn"
+                    onClick={handleDbConnect} disabled={!activeConnUrl.trim() || dbConnecting} data-testid="db-connect-btn"
                     className="flex items-center gap-2 px-4 py-2.5 rounded-xl btn-primary text-white text-xs font-bold disabled:opacity-40">
                     {dbConnecting ? <Loader2 size={12} className="animate-spin" /> : <ArrowRight size={12} />}
                     Conectar
@@ -926,6 +1105,114 @@ export default function DatabasePage() {
                 </motion.button>
               </div>
               <p className="text-[10px] text-slate-400 text-center">Se crea un respaldo automático antes de cada limpieza</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ── ACTUALIZACIONES EN LA BASE DE DATOS ── */}
+        <motion.div variants={fadeUp}>
+          <div className="glass rounded-3xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/40">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center">
+                  <Package size={16} className="text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-900" style={{ fontFamily: "Cabinet Grotesk, sans-serif" }}>Actualizaciones guardadas</p>
+                  <p className="text-[11px] text-slate-400">Versiones de la app almacenadas en esta base de datos</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-violet-100 text-violet-700">{dbUpdates.length} versiones</span>
+                <button onClick={loadDbUpdates} className="w-8 h-8 rounded-xl hover:bg-white/60 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all">
+                  <RefreshCw size={13} className={updatesLoading ? "animate-spin" : ""} />
+                </button>
+              </div>
+            </div>
+            <div className="p-5">
+              {updatesLoading ? (
+                <div className="space-y-2">{[...Array(2)].map((_,i) => <div key={i} className="h-12 glass rounded-2xl animate-pulse"/>)}</div>
+              ) : dbUpdates.length === 0 ? (
+                <div className="py-8 text-center">
+                  <Package size={28} className="mx-auto text-slate-200 mb-2"/>
+                  <p className="text-xs text-slate-400 font-medium">No hay versiones en esta base de datos</p>
+                  <p className="text-[10px] text-slate-300 mt-1">Descarga la App desde Ajustes para registrar la primera versión</p>
+                  <a href="/actualizaciones" className="inline-flex items-center gap-1 mt-3 text-xs text-indigo-500 font-bold hover:underline">
+                    Ir a Actualizaciones <ChevronRight size={12}/>
+                  </a>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {dbUpdates.map((u) => (
+                    <div key={u.id} data-testid={`db-update-row-${u.id}`}
+                      className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-50/60 border border-slate-200/40 hover:bg-white/60 transition-colors">
+                      <div className="w-8 h-8 rounded-xl bg-violet-50 flex items-center justify-center flex-shrink-0">
+                        <Package size={13} className="text-violet-500"/>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-black text-slate-800">v{u.version}</p>
+                          {u.is_latest && <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">ACTIVA</span>}
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${u.channel === "stable" ? "bg-slate-100 text-slate-500" : u.channel === "beta" ? "bg-amber-100 text-amber-600" : "bg-red-100 text-red-500"}`}>
+                            {u.channel === "stable" ? "Estable" : u.channel === "beta" ? "Beta" : "Alpha"}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400 truncate">{u.filename} · {u.file_size ? (u.file_size > 1048576 ? `${(u.file_size/1048576).toFixed(1)} MB` : `${(u.file_size/1024).toFixed(0)} KB`) : "—"} · {new Date(u.created_at).toLocaleDateString("es-GT")}</p>
+                      </div>
+                      {u.notes && <p className="text-[10px] text-slate-400 italic truncate max-w-[120px] hidden md:block">{u.notes}</p>}
+                      <button onClick={() => handleDeleteUpdate(u.id)} data-testid={`db-update-del-${u.id}`}
+                        className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center transition-colors flex-shrink-0">
+                        <Trash2 size={11} className="text-red-400"/>
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-center pt-2">
+                    <a href="/actualizaciones" className="flex items-center gap-1.5 text-xs text-indigo-500 font-bold hover:underline">
+                      Administrar versiones <ChevronRight size={12}/>
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ── OPCIONES DE BASE DE DATOS ── */}
+        <motion.div variants={fadeUp}>
+          <div className="glass rounded-3xl overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-white/40">
+              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center">
+                <ToggleRight size={16} className="text-slate-600" />
+              </div>
+              <div>
+                <p className="text-sm font-black text-slate-900" style={{ fontFamily: "Cabinet Grotesk, sans-serif" }}>Opciones de base de datos</p>
+                <p className="text-[11px] text-slate-400">Activa o desactiva funciones de la base de datos</p>
+              </div>
+            </div>
+            <div className="p-5 space-y-1">
+              {[
+                { key: "autoTest",     icon: Wifi,          label: "Probar conexión antes de conectar",      sub: "Verifica que el servidor esté disponible antes de cambiar" },
+                { key: "notifySwitch", icon: MonitorSpeaker, label: "Notificar al cambiar de base de datos",  sub: "Muestra una alerta de confirmación al conectar" },
+                { key: "showFullUrl",  icon: Link2,          label: "Mostrar URL completa en el estado",      sub: "Muestra la URL sin ocultar contraseñas (solo local)" },
+                { key: "compressBackup", icon: HardDrive,    label: "Comprimir respaldos automáticos",        sub: "Reduce el tamaño de los archivos de backup" },
+              ].map(({ key, icon: Icon, label, sub }) => (
+                <div key={key} data-testid={`db-option-${key}`}
+                  className="flex items-center justify-between py-3 px-3 rounded-2xl hover:bg-white/40 transition-colors cursor-pointer"
+                  onClick={() => saveDbOption(key, !dbOptions[key])}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+                      <Icon size={14} className="text-slate-500"/>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">{label}</p>
+                      <p className="text-[10px] text-slate-400">{sub}</p>
+                    </div>
+                  </div>
+                  <div className={`w-10 h-5 rounded-full transition-colors relative flex-shrink-0 ${dbOptions[key] ? "bg-indigo-500" : "bg-slate-200"}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${dbOptions[key] ? "right-0.5" : "left-0.5"}`}/>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </motion.div>
