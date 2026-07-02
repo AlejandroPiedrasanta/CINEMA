@@ -1,5 +1,5 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import JSONResponse, Response, RedirectResponse
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.responses import JSONResponse, Response, RedirectResponse, StreamingResponse
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 import csv
@@ -45,6 +45,10 @@ DB_NAME = os.environ['DB_NAME']
 # ── Backup directory ──────────────────────────────────────────
 BACKUP_DIR = ROOT_DIR / "backups"
 BACKUP_DIR.mkdir(exist_ok=True)
+
+# ── Updates directory ─────────────────────────────────────────
+UPDATES_DIR = ROOT_DIR / "uploads" / "updates"
+UPDATES_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Google / VAPID config ─────────────────────────────────────
 GOOGLE_CLIENT_ID     = os.environ.get('GOOGLE_CLIENT_ID', '')
@@ -2278,6 +2282,134 @@ async def download_package():
         media_type='application/zip',
         headers={'Content-Disposition': 'attachment; filename=cinema-productions-local.zip'}
     )
+
+
+
+
+# ── APP UPDATES ──────────────────────────────────────────────────────────────
+
+@api_router.post("/updates/upload")
+async def upload_app_update(
+    file: UploadFile = File(...),
+    version: str = Form(...),
+    notes: str = Form(""),
+    channel: str = Form("stable"),
+):
+    content = await file.read()
+    file_id = str(uuid.uuid4())
+    safe_name = f"{file_id}_{file.filename}"
+    file_path = UPDATES_DIR / safe_name
+    file_path.write_bytes(content)
+
+    # Mark all previous as not latest
+    await db.app_updates.update_many({}, {"$set": {"is_latest": False}})
+
+    doc = {
+        "version": version,
+        "filename": file.filename,
+        "stored_name": safe_name,
+        "notes": notes,
+        "channel": channel,
+        "file_size": len(content),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "is_latest": True,
+    }
+    result = await db.app_updates.insert_one(doc)
+    return {**{k: v for k, v in doc.items() if k != "_id"}, "id": str(result.inserted_id)}
+
+
+@api_router.get("/updates/latest")
+async def get_latest_update():
+    doc = await db.app_updates.find_one({"is_latest": True}, sort=[("created_at", -1)])
+    if not doc:
+        raise HTTPException(status_code=404, detail="No hay actualizaciones disponibles")
+    return {
+        "id": str(doc["_id"]),
+        "version": doc["version"],
+        "filename": doc["filename"],
+        "notes": doc.get("notes", ""),
+        "channel": doc.get("channel", "stable"),
+        "file_size": doc["file_size"],
+        "created_at": doc["created_at"],
+    }
+
+
+@api_router.get("/updates/history")
+async def get_update_history():
+    cursor = db.app_updates.find({}, sort=[("created_at", -1)])
+    docs = await cursor.to_list(200)
+    return [
+        {
+            "id": str(d["_id"]),
+            "version": d["version"],
+            "filename": d["filename"],
+            "notes": d.get("notes", ""),
+            "channel": d.get("channel", "stable"),
+            "file_size": d["file_size"],
+            "created_at": d["created_at"],
+            "is_latest": d.get("is_latest", False),
+        }
+        for d in docs
+    ]
+
+
+@api_router.get("/updates/download/{update_id}")
+async def download_update(update_id: str):
+    try:
+        oid = ObjectId(update_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID inválido")
+    doc = await db.app_updates.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Actualización no encontrada")
+    file_path = UPDATES_DIR / doc["stored_name"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Archivo no encontrado en el servidor")
+
+    def iter_file():
+        with open(file_path, "rb") as f:
+            while chunk := f.read(1024 * 1024):
+                yield chunk
+
+    return StreamingResponse(
+        iter_file(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{doc["filename"]}"'},
+    )
+
+
+@api_router.put("/updates/{update_id}/set-latest")
+async def set_latest_update(update_id: str):
+    try:
+        oid = ObjectId(update_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID inválido")
+    await db.app_updates.update_many({}, {"$set": {"is_latest": False}})
+    result = await db.app_updates.update_one({"_id": oid}, {"$set": {"is_latest": True}})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Actualización no encontrada")
+    return {"message": "Versión marcada como activa"}
+
+
+@api_router.delete("/updates/{update_id}")
+async def delete_update(update_id: str):
+    try:
+        oid = ObjectId(update_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID inválido")
+    doc = await db.app_updates.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Actualización no encontrada")
+    file_path = UPDATES_DIR / doc["stored_name"]
+    if file_path.exists():
+        file_path.unlink()
+    await db.app_updates.delete_one({"_id": oid})
+    # If deleted was the latest, promote the next most recent
+    if doc.get("is_latest"):
+        newer = await db.app_updates.find_one({}, sort=[("created_at", -1)])
+        if newer:
+            await db.app_updates.update_one({"_id": newer["_id"]}, {"$set": {"is_latest": True}})
+    return {"message": "Actualización eliminada"}
 
 
 app.include_router(api_router)

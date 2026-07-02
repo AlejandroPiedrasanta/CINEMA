@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, List, Menu, X, SlidersHorizontal, Users, Database, Palette } from "lucide-react";
+import { LayoutDashboard, CalendarDays, List, Menu, X, SlidersHorizontal, Users, Database, Palette, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSettings, PRESETS } from "@/context/SettingsContext";
@@ -68,6 +68,7 @@ export default function Layout({ children }) {
     { path: "/base-de-datos",  label: tr.nav.database || "Base de Datos", icon: Database },
     { path: "/apariencia",     label: tr.nav.appearance || "Apariencia",  icon: Palette },
     { path: "/ajustes",        label: tr.nav.settings,           icon: SlidersHorizontal },
+    { path: "/actualizaciones", label: "Actualizaciones",        icon: RefreshCw },
   ];
 
   return (

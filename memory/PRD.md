@@ -158,3 +158,4 @@ Contiene claves de apariencia + configuración de negocio:
 - 2026-04-22: **5 estilos visuales Dashboard** + campo Paquete (Básico/Intermedio/Completo)
 - 2026-04-22: **Socios: Panel asignar evento** con toggle Pendiente↔Pagado
 - 2026-04-22: **Reservaciones mejoradas**: paginación 8+mostrar más, filtros extra (paquete, rango fechas), orden fecha más cercana. **Calendario**: pastillas siempre muestran tipo de evento.
+- 2026-07-02: **Sistema de Actualizaciones**: Página "Actualizaciones" en sidebar (debajo de Ajustes). Subir cualquier archivo (EXE/ZIP/MSI), versión, notas, canal (Estable/Beta/Alpha). Historial con descarga/eliminar/marcar-activa. URL pública de auto-actualización con botón copiar. Simulador de App de Escritorio para probar detección de updates remotos. 6 endpoints `/api/updates/` en server.py y standalone_app.py. Comprobantes de pago en detalle: imagen en grande (ancho completo, 520px) con botón "Subir otra imagen" debajo.

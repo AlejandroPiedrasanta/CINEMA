@@ -63,3 +63,20 @@ export const restoreBackup = (file) => {
   form.append("file", file);
   return api.post("/backup/restore", form).then(r => r.data);
 };
+
+// Updates
+export const getUpdatesHistory = () => api.get("/updates/history").then(r => r.data);
+export const getLatestUpdate = () => api.get("/updates/latest").then(r => r.data);
+export const deleteUpdate = (id) => api.delete(`/updates/${id}`).then(r => r.data);
+export const setLatestUpdate = (id) => api.put(`/updates/${id}/set-latest`).then(r => r.data);
+export const checkRemoteUpdate = (url, currentVersion) =>
+  api.get(`/updates/check-remote?url=${encodeURIComponent(url)}&current_version=${currentVersion}`).then(r => r.data);
+export const getUpdateDownloadUrl = (id) => `${BASE}/updates/download/${id}`;
+export const uploadAppUpdate = (file, version, notes, channel) => {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("version", version);
+  form.append("notes", notes || "");
+  form.append("channel", channel || "stable");
+  return api.post("/updates/upload", form).then(r => r.data);
+};

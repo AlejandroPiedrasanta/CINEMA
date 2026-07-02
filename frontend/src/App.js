@@ -11,6 +11,7 @@ import Settings from "@/pages/Settings";
 import Socios from "@/pages/Socios";
 import DatabasePage from "@/pages/DatabasePage";
 import AppearancePage from "@/pages/AppearancePage";
+import UpdatesPage from "@/pages/UpdatesPage";
 import { Toaster } from "@/components/ui/toaster";
 import { useEffect } from "react";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -54,6 +55,7 @@ function AnimatedRoutes() {
           <Route path="/socios" element={<Socios />} />
           <Route path="/base-de-datos" element={<DatabasePage />} />
           <Route path="/apariencia" element={<AppearancePage />} />
+          <Route path="/actualizaciones" element={<UpdatesPage />} />
         </Routes>
       </motion.div>
     </AnimatePresence>
