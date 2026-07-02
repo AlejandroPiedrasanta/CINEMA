@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import JSONResponse, Response, RedirectResponse, StreamingResponse
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -2248,7 +2248,7 @@ async def get_build_status():
 
 
 @api_router.get("/download/package")
-async def download_package():
+async def download_package(request: Request):
     import zipfile
 
     build_dir = ROOT_DIR.parent / "frontend" / "build"
@@ -2257,6 +2257,9 @@ async def download_package():
             status_code=503,
             detail="El paquete aun no esta listo. Espera 2 minutos e intentalo de nuevo."
         )
+
+    # Embed the cloud server URL so Desktop App knows where to check for updates
+    cloud_url = str(request.base_url).rstrip("/")
 
     standalone_py = (ROOT_DIR / 'standalone_app.py').read_text()
 
@@ -2270,6 +2273,8 @@ async def download_package():
         zf.writestr('cinema-productions/start.bat', _START_BAT)
         zf.writestr('cinema-productions/start.sh', _START_SH)
         zf.writestr('cinema-productions/README.txt', _README)
+        # Embed cloud URL for automatic update detection
+        zf.writestr('cinema-productions/update_server_url.txt', cloud_url)
 
         for file_path in sorted(build_dir.rglob('*')):
             if file_path.is_file():

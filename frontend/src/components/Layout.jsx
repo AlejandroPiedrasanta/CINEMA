@@ -1,8 +1,50 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, List, Menu, X, SlidersHorizontal, Users, Database, Palette, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { LayoutDashboard, CalendarDays, List, Menu, X, SlidersHorizontal, Users, Database, Palette, RefreshCw, Download, ArrowRight } from "lucide-react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSettings, PRESETS } from "@/context/SettingsContext";
+import axios from "axios";
+
+const IS_DESKTOP = (window.__API_BASE_URL__ || process.env.REACT_APP_BACKEND_URL || "").includes("localhost");
+const API_BASE = window.__API_BASE_URL__ || process.env.REACT_APP_BACKEND_URL;
+
+function UpdateBanner() {
+  const [update, setUpdate] = useState(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!IS_DESKTOP) return;
+    axios.get(`${API_BASE}/api/updates/check`)
+      .then(r => { if (r.data?.has_update) setUpdate(r.data); })
+      .catch(() => {});
+  }, []);
+
+  const handleDismiss = async () => {
+    setDismissed(true);
+    try { await axios.post(`${API_BASE}/api/updates/dismiss`); } catch {}
+  };
+
+  if (!IS_DESKTOP || !update || dismissed) return null;
+
+  return (
+    <motion.div initial={{ y: -60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -60, opacity: 0 }}
+      className="fixed top-0 left-0 right-0 z-50 flex items-center gap-3 px-5 py-3 text-white text-sm font-semibold"
+      style={{ background: "linear-gradient(90deg, #4f46e5 0%, #7c3aed 100%)", boxShadow: "0 4px 24px rgba(79,70,229,0.4)" }}>
+      <RefreshCw size={16} className="flex-shrink-0 animate-spin-slow" />
+      <span className="flex-1">
+        <strong>Nueva versión disponible: v{update.remote_version}</strong>
+        {update.notes && <span className="opacity-75 ml-2">· {update.notes}</span>}
+      </span>
+      <a href={update.download_url} target="_blank" rel="noreferrer"
+        className="flex items-center gap-1.5 bg-white/20 hover:bg-white/30 px-4 py-1.5 rounded-full text-xs font-bold transition-colors">
+        <Download size={13} /> Descargar {update.filename}
+      </a>
+      <button onClick={handleDismiss} className="opacity-60 hover:opacity-100 transition-opacity ml-1">
+        <X size={16} />
+      </button>
+    </motion.div>
+  );
+}
 
 export default function Layout({ children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -73,6 +115,7 @@ export default function Layout({ children }) {
 
   return (
     <div className="flex min-h-screen" style={{ position: "relative", zIndex: 1 }}>
+      <UpdateBanner />
       {/* Desktop Sidebar */}
       <aside
         className="hidden md:flex flex-col min-h-screen glass-sidebar fixed left-0 top-0 z-20 transition-all duration-300"

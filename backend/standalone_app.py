@@ -44,6 +44,11 @@ UPDATES_DIR = ROOT_DIR / 'uploads' / 'updates'
 UPDATES_DIR.mkdir(parents=True, exist_ok=True)
 BACKUP_COLLECTIONS = ['reservations', 'socios', 'app_settings']
 
+# ── Auto-update config ────────────────────────────────────────────────────────
+_UPDATE_SERVER_FILE = ROOT_DIR / 'update_server_url.txt'
+_update_server_url = _UPDATE_SERVER_FILE.read_text().strip() if _UPDATE_SERVER_FILE.exists() else ""
+_update_status: dict = {"checked": False, "has_update": False}
+
 # ── Determine effective MongoDB URL (override file takes priority) ────────────
 _override_url = CUSTOM_DB_FILE.read_text().strip() if CUSTOM_DB_FILE.exists() else None
 _effective_mongo_url = _override_url or MONGO_URL
@@ -172,6 +177,10 @@ async def lifespan(app_instance: FastAPI):
     if _using_embedded:
         await _load_embedded_data()
         _task = asyncio.create_task(_auto_save_loop())
+
+    # ── Check for updates in background ──────────────────────────────────────
+    asyncio.create_task(_check_for_updates())
+
     yield
     if _using_embedded:
         if _task:
@@ -1104,6 +1113,62 @@ async def trigger_reminders_manual():
             "message": "Recordatorios por email disponibles en la versión web"}
 
 
+
+
+
+# ── Auto-update detection ─────────────────────────────────────────────────────
+
+async def _check_for_updates():
+    """Called once at startup. Checks remote server for a newer version."""
+    global _update_status
+    if not _update_server_url:
+        _update_status = {"checked": True, "has_update": False}
+        return
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(f"{_update_server_url}/api/updates/latest")
+            if r.status_code == 200:
+                remote = r.json()
+                # Get current local version (stored in settings or defaults to 0.0.0)
+                local_settings = await db.app_settings.find_one({"key": "local_version"})
+                local_ver = local_settings["value"] if local_settings else "0.0.0"
+                has_update = remote["version"] != local_ver
+                _update_status = {
+                    "checked": True,
+                    "has_update": has_update,
+                    "remote_version": remote["version"],
+                    "local_version": local_ver,
+                    "filename": remote["filename"],
+                    "notes": remote.get("notes", ""),
+                    "file_size": remote.get("file_size", 0),
+                    "download_url": f"{_update_server_url}/api/updates/download/{remote['id']}",
+                }
+            else:
+                _update_status = {"checked": True, "has_update": False}
+    except Exception as e:
+        logger.warning(f"Update check failed: {e}")
+        _update_status = {"checked": True, "has_update": False}
+
+
+@api_router.get("/updates/check")
+async def check_for_updates_endpoint():
+    """Frontend calls this to know if an update is available."""
+    return _update_status
+
+
+@api_router.post("/updates/dismiss")
+async def dismiss_update():
+    """User dismissed the update banner — remember current remote version."""
+    global _update_status
+    if _update_status.get("has_update") and _update_status.get("remote_version"):
+        await db.app_settings.update_one(
+            {"key": "local_version"},
+            {"$set": {"key": "local_version", "value": _update_status["remote_version"]}},
+            upsert=True,
+        )
+    _update_status = {**_update_status, "has_update": False}
+    return {"message": "OK"}
 
 
 # ── APP UPDATES (local + remote check) ──────────────────────────────────────
