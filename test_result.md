@@ -165,6 +165,42 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ TESTED: All AI Context endpoints working perfectly. GET returns content (5705 chars) with 'Cinema Productions' text and updated_at timestamp. POST successfully saves custom content and verifies it. POST /reset restores default content (5705 chars). All data persists correctly in MongoDB."
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPREHENSIVE TEST: AI Context expanded to 20,514 chars (exceeds 15k requirement). Contains 'Cinema Productions' and 'GitHub Integration' phrases. Tested on external URL."
+  - task: "Full CRUD Reservations with seed data"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPREHENSIVE TEST: All 5 CRUD operations tested successfully. GET /api/reservations returns 5 seed items with all required fields (id, client_name, event_type, event_date, total_amount, advance_paid, status). GET /{id} retrieves detail. PUT /{id} updates successfully. POST creates new reservation (201). DELETE removes test reservation. All seed data remains intact after tests."
+  - task: "Full CRUD Socios with seed data"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPREHENSIVE TEST: All 4 CRUD operations tested successfully. GET /api/socios returns 3 seed items (María González, Carlos Mendoza, Ana López). PUT /{id} updates successfully. POST creates new socio (201). DELETE removes test socio. All seed data remains intact after tests."
+  - task: "Stats and aggregate endpoints"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPREHENSIVE TEST: All aggregate endpoints working. GET /api/stats returns all required keys (total_reservations=5, upcoming_events=5, pending_payment, real_income=97000.0). GET /api/calendar returns 5 events. GET /api/financials returns financial data. GET /api/export/reservations returns CSV with correct content-type. GET /api/settings returns 200. GET /api/backup/history returns 15 backups. GET /api/notifications/pending returns 200."
 
 frontend:
   - task: "GitHub & AI Context block in DatabasePage"
@@ -193,14 +229,17 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
   current_focus:
-    - "GitHub config endpoints (GET/POST /api/github/config)"
-    - "GitHub check updates endpoint (GET /api/github/check-updates)"
-    - "AI Context endpoints (GET/POST /api/ai-context, POST /api/ai-context/reset)"
+    - "Full CRUD reservations (5 seed items already created)"
+    - "Full CRUD socios (3 seed items already created)"
+    - "Stats/Calendar/Financials/Export endpoints"
+    - "AI Context expanded (>15k chars) — GET /api/ai-context"
+    - "GitHub config and check-updates endpoints"
+    - "Backup history and settings endpoints"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -222,6 +261,40 @@ agent_communication:
         5. GET /api/ai-context → contenido markdown no vacío
         6. POST /api/ai-context con content → guarda y updated_at cambia
         7. POST /api/ai-context/reset → restaura contenido por defecto
+
+  - agent: "main"
+    message: |
+      NUEVA PETICIÓN (usuario): Testear TODA la app con 5 reservaciones + socios para
+      verificar que no hay errores. También he expandido el contexto AI de 5,705 a 20,514
+      caracteres para incluir todo el historial de la sesión, correcciones, arquitectura
+      completa, endpoints, modelos y reglas.
+
+      Ya he creado seed data:
+        - 5 reservas (Boda, XV años, Corporativo, Cumpleaños, Gala) con status/paquete variados
+        - 3 socios (Fotógrafo, Videógrafo, Editor)
+      Todas verificadas: /stats reporta 5 reservas, /financials responde 200, /calendar 5 eventos.
+
+      PLEASE TEST EXHAUSTIVELY:
+      1. LISTADO reservas → GET /api/reservations (5 items)
+      2. DETALLE de cada reserva → GET /api/reservations/{id}
+      3. UPDATE de una reserva → PUT /api/reservations/{id}
+      4. CREATE reserva nueva (crear una 6ta) → POST /api/reservations
+      5. DELETE reserva creada por el test → DELETE /api/reservations/{id}
+      6. LISTADO socios → GET /api/socios (3 items)
+      7. UPDATE socio → PUT /api/socios/{id}
+      8. CREATE y DELETE socio nuevo
+      9. GET /api/stats → verificar campos: total_reservations, upcoming_events, pending_payment, real_income
+      10. GET /api/calendar → 5 eventos con fechas correctas
+      11. GET /api/financials → responde 200 con datos
+      12. GET /api/export/reservations (CSV) → 200 con content-type text/csv
+      13. GET /api/settings → 200 con configuración
+      14. GET /api/backup/history → lista de backups
+      15. GET /api/ai-context → contenido > 15000 chars (contexto expandido)
+      16. GET /api/github/config → repo_url configurado
+      17. GET /api/github/check-updates → responde con has_updates y commits list
+
+      NO ejecutar POST /api/github/apply-update ni DELETE /api/data/clear-all.
+      Reportar cualquier error en cualquier endpoint.
   - agent: "testing"
     message: |
       ✅ BACKEND TESTING COMPLETE - All GitHub Integration & AI Context endpoints PASSED (13/13 tests)
@@ -262,3 +335,57 @@ agent_communication:
       1. Fix Kubernetes ingress routing for external URL (infrastructure team)
       2. All backend endpoints are production-ready
       3. Frontend can be tested once external URL routing is fixed
+  - agent: "testing"
+    message: |
+      ✅✅✅ COMPREHENSIVE BACKEND TESTING COMPLETE - ALL 22 TESTS PASSED (100% SUCCESS RATE) ✅✅✅
+      
+      🎉 EXTERNAL URL NOW WORKING: https://4c46c59f-58b0-4e2f-a739-f1c96f46602f.preview.emergentagent.com/api
+      
+      Previous infrastructure issue has been RESOLVED. All endpoints tested on external URL.
+      
+      ✅ BASIC ENDPOINTS (1/1):
+        • GET /api/ → Returns {"message": "Event Reservation API"}
+      
+      ✅ RESERVATIONS CRUD (5/5):
+        • GET /api/reservations → 5 seed items with all required fields
+        • GET /api/reservations/{id} → Detail retrieved (Client: Familia Ramírez)
+        • PUT /api/reservations/{id} → Notes updated successfully
+        • POST /api/reservations → Created test reservation (201)
+        • DELETE /api/reservations/{id} → Test reservation deleted
+      
+      ✅ SOCIOS CRUD (4/4):
+        • GET /api/socios → 3 seed items (María González, Carlos Mendoza, Ana López)
+        • PUT /api/socios/{id} → Socio updated successfully
+        • POST /api/socios → Created test socio (201)
+        • DELETE /api/socios/{id} → Test socio deleted
+      
+      ✅ STATS & AGGREGATE ENDPOINTS (7/7):
+        • GET /api/stats → total_reservations=5, upcoming_events=5, real_income=97000.0
+        • GET /api/calendar → 5 calendar events
+        • GET /api/financials → Financial data retrieved
+        • GET /api/export/reservations → CSV export with correct content-type
+        • GET /api/settings → Settings retrieved
+        • GET /api/backup/history → 15 backups found
+        • GET /api/notifications/pending → Notifications endpoint working
+      
+      ✅ AI CONTEXT EXPANDED (1/1):
+        • GET /api/ai-context → 20,514 chars (exceeds 15k requirement ✓)
+        • Contains: "Cinema Productions" ✓, "GitHub Integration" ✓
+      
+      ✅ GITHUB INTEGRATION (2/2):
+        • GET /api/github/config → Repo: https://github.com/alejandropiedrasanta1-ui/CINEMA
+        • GET /api/github/check-updates → has_updates=False, commits_ahead=0
+      
+      ✅ SEED DATA INTEGRITY (2/2):
+        • All 5 seed reservations intact after tests
+        • All 3 seed socios intact after tests
+      
+      📊 FINAL RESULTS:
+        Total Tests: 22
+        Passed: 22
+        Failed: 0
+        Pass Rate: 100.0%
+      
+      🎯 ALL BACKEND ENDPOINTS ARE PRODUCTION-READY
+      🎯 NO ERRORS OR ISSUES FOUND
+      🎯 SEED DATA VERIFIED AND INTACT

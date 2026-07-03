@@ -2630,144 +2630,471 @@ import re as _re
 
 REPO_ROOT = Path(__file__).parent.parent  # /app
 
-DEFAULT_AI_CONTEXT = """# 🧠 CONTEXTO PARA LA PRÓXIMA IA — Cinema Productions
+DEFAULT_AI_CONTEXT = """# 🧠 CONTEXTO COMPLETO PARA LA PRÓXIMA IA — Cinema Productions
+
+> **INSTRUCCIONES CRÍTICAS PARA LA IA QUE LEE ESTO:**
+> Este documento contiene TODO lo necesario para retomar el trabajo en este repositorio
+> sin perder contexto. Léelo COMPLETO antes de tocar cualquier archivo. Incluye:
+> - Arquitectura completa · Modelos · Endpoints · Reglas del negocio
+> - Historial de sesiones y cambios (por orden cronológico inverso)
+> - Peticiones del usuario y correcciones aplicadas
+> - Reglas OBLIGATORIAS de edición (no modificar `.env`, no hardcodear URLs, etc.)
+> - Comandos de servicios y flujos de testing
+
+---
 
 ## 📌 Descripción del Proyecto
-**Cinema Productions** es un sistema completo de gestión de reservas de eventos para empresas de producción audiovisual. Los clientes dan un anticipo por una fecha específica y se gestiona todo el ciclo: reservas, pagos, calendario, socios, notificaciones multi-canal y respaldos.
+**Cinema Productions** es un sistema completo de gestión de reservas de eventos para
+empresas de producción audiovisual (fotografía, video, eventos). Los clientes dan un
+anticipo por una fecha específica y la app gestiona todo el ciclo: reservas, pagos,
+calendario, socios (equipo), notificaciones multi-canal, respaldos y sincronización
+con GitHub.
 
-## 🏗️ Arquitectura
-- **Frontend**: React 19 + TailwindCSS + Framer Motion + Shadcn UI (craco)
-- **Backend**: FastAPI (Python) + Motor (MongoDB async) + APScheduler
-- **DB**: MongoDB (colecciones: reservations, socios, app_settings, themes)
-- **Repo Git**: /app está inicializado como repo git, remoto = GitHub
+**Repositorio**: https://github.com/alejandropiedrasanta1-ui/CINEMA
+**Usuario/Cliente objetivo**: Alejandro Piedrasanta (Cinema Productions, Guatemala)
 
-## 📁 Estructura de archivos clave
+---
+
+## 🏗️ Arquitectura Técnica
+
+| Capa | Tecnología | Versión |
+|------|-----------|---------|
+| Frontend | React + Craco + TailwindCSS + Framer Motion + Shadcn UI | React 19 |
+| Backend | FastAPI (Python) + Motor (async MongoDB) + APScheduler | FastAPI 0.110 |
+| Base de datos | MongoDB local (motor 3.3.1) | 4.x+ |
+| Router | React Router DOM | 7.5 |
+| Formularios | react-hook-form + zod | 7.56 / 3.24 |
+| PDFs | jspdf + html2canvas | 4.2 / 1.4 |
+| Gráficos | recharts | 3.6 |
+
+**Puertos internos** (NO modificar):
+- Backend: `0.0.0.0:8001` (uvicorn via supervisor)
+- Frontend: `0.0.0.0:3000` (craco start via supervisor)
+- MongoDB: `localhost:27017`
+
+**Kubernetes ingress**:
+- `/api/*` → backend puerto 8001
+- resto → frontend puerto 3000
+- URL externa está en `frontend/.env` como `REACT_APP_BACKEND_URL`
+
+---
+
+## 📁 Estructura de Archivos
+
 ```
 /app/
 ├── backend/
-│   ├── server.py             # FastAPI principal (~2700 líneas)
-│   ├── standalone_app.py     # Versión desktop embebida
-│   ├── requirements.txt
-│   ├── .env                  # MONGO_URL, DB_NAME, CORS_ORIGINS
-│   ├── backups/              # Auto-backups JSON
-│   └── uploads/updates/      # .exe/zip de actualizaciones
+│   ├── server.py             ★ FastAPI principal (~3000 líneas)
+│   ├── standalone_app.py     ★ Versión desktop embebida en .exe
+│   ├── requirements.txt      ★ Dependencias Python
+│   ├── .env                  ★ MONGO_URL, DB_NAME, CORS_ORIGINS
+│   ├── .db_override          → Override dinámico de MONGO_URL (opcional)
+│   ├── backups/              → Auto-backups JSON con timestamp
+│   ├── uploads/updates/      → Archivos .exe/.zip de actualizaciones desktop
+│   └── tests/                → Tests unitarios pytest (18+ iteraciones)
 ├── frontend/
 │   ├── src/
-│   │   ├── App.js            # Router con transiciones dinámicas
-│   │   ├── context/SettingsContext.jsx   # Estado global apariencia
-│   │   ├── pages/            # Dashboard, Reservations, CalendarView, Socios,
-│   │   │                     # DatabasePage, AppearancePage, Settings, UpdatesPage
-│   │   ├── components/       # Layout (sidebar), forms, secciones
-│   │   ├── lib/api.js        # Axios configurado con REACT_APP_BACKEND_URL
-│   │   └── hooks/            # useNotifications, useAutoBackup, use-toast
-│   ├── .env                  # REACT_APP_BACKEND_URL
-│   └── package.json
-└── memory/PRD.md             # PRD original
+│   │   ├── App.js                       ← Router principal + transiciones dinámicas
+│   │   ├── index.js / index.css         ← Entry + estilos globales
+│   │   ├── context/SettingsContext.jsx  ★ Estado global (apariencia, idioma, etc.)
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx            ← Estadísticas + próximas reservas
+│   │   │   ├── Reservations.jsx         ← Listado + filtros + botón Nueva Reserva
+│   │   │   ├── ReservationDetail.jsx    ← Detalle + editar + recibos
+│   │   │   ├── CalendarView.jsx         ← Vista mensual con pastillas
+│   │   │   ├── Socios.jsx               ← Gestión de equipo
+│   │   │   ├── DatabasePage.jsx         ← Backups + conexión + GitHub + IA context
+│   │   │   ├── AppearancePage.jsx       ← 9 secciones de personalización
+│   │   │   ├── Settings.jsx             ← Idioma, moneda, notif, negocio, desktop
+│   │   │   └── UpdatesPage.jsx          ← Actualizaciones desktop + GitHub sync
+│   │   ├── components/
+│   │   │   ├── Layout.jsx               ← Sidebar principal
+│   │   │   ├── WelcomeTour.jsx          ← Tour inicial 18 pasos
+│   │   │   ├── LockScreen.jsx           ← Bloqueo por contraseña de app
+│   │   │   ├── SocioForm.jsx / ReservationForm.jsx / LocationsSection.jsx / TeamSection.jsx / SecuritySection.jsx
+│   │   │   ├── appearance/              → Sub-secciones (SavedThemes, NavMenu, Tutorial, SectionShell)
+│   │   │   └── ui/                      → Shadcn (button, dialog, input, etc.)
+│   │   ├── lib/
+│   │   │   ├── api.js                   ← Axios configurado con REACT_APP_BACKEND_URL
+│   │   │   ├── eventConfig.js           ← Tipos de evento predefinidos
+│   │   │   ├── sectionSearch.js         ← Búsqueda global
+│   │   │   ├── formDesigns.js           ← Diseños de formulario
+│   │   │   ├── generatePDF.js           ← PDF de reservas
+│   │   │   └── utils.js                 ← Helpers (cn, etc.)
+│   │   └── hooks/
+│   │       ├── use-toast.js             ← Toasts (shadcn)
+│   │       ├── useNotifications.js      ← Web push VAPID
+│   │       └── useAutoBackup.js         ← Auto-backup a PC del cliente
+│   ├── public/
+│   │   ├── index.html
+│   │   ├── logo.png
+│   │   └── sw.js                        ← Service worker (web push)
+│   ├── plugins/health-check/            ← Plugin webpack de health check
+│   ├── package.json                     ★ Dependencias JS
+│   ├── .env                             ★ REACT_APP_BACKEND_URL
+│   ├── craco.config.js                  ★ Alias @/ + config webpack
+│   └── tailwind.config.js
+├── memory/
+│   ├── PRD.md                           ★ PRD original
+│   └── test_credentials.md              ★ Credenciales de test (leído por testing agents)
+├── test_reports/                        ← Reportes de iteraciones (2..38)
+├── test_result.md                       ★ Protocolo de comunicación testing_agent ↔ main_agent
+└── .emergent/emergent.yml               ← Metadata del job (env_image_name, job_id)
 ```
 
-## 🔧 Variables de Entorno CRÍTICAS
-- `backend/.env`: `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`
-- `frontend/.env`: `REACT_APP_BACKEND_URL` (URL externa a través de Kubernetes ingress)
-- **NUNCA** modificar estas variables ni hardcodear URLs/puertos
-- Backend se sirve por supervisor en `0.0.0.0:8001`
-- Todas las rutas backend deben tener prefijo `/api`
+★ = archivo crítico
 
-## 🚀 Comandos de servicio
+---
+
+## 🔐 Variables de Entorno (NUNCA MODIFICAR VALORES)
+
+### backend/.env
+```
+MONGO_URL="mongodb://localhost:27017"
+DB_NAME="cinema_productions"
+CORS_ORIGINS="*"
+```
+
+### frontend/.env
+```
+REACT_APP_BACKEND_URL=https://<job-id>.preview.emergentagent.com
+WDS_SOCKET_PORT=443
+```
+
+### Uso correcto en código
+- Frontend: `import.meta.env.REACT_APP_BACKEND_URL` o `process.env.REACT_APP_BACKEND_URL`
+- Backend: `os.environ.get('MONGO_URL')` / `os.environ.get('DB_NAME')`
+- **REGLA**: TODAS las rutas del backend deben tener prefijo `/api` (Kubernetes ingress)
+
+### Claves opcionales (guardadas en `app_settings` de MongoDB)
+Se configuran desde la UI, no en `.env`:
+- `google_client_id`, `google_client_secret` → Gmail OAuth
+- `resend_api_key` → email (Resend)
+- `telegram_bot_token`, `telegram_chat_id` → notif Telegram
+- `ntfy_topic` → notif ntfy.sh
+- `vapid_public_key`, `vapid_private_key`, `vapid_email` → web push
+- `github_config.repo_url`, `github_config.token`, `github_config.branch` → GitHub sync
+- `app_password_hash`, `app_password_hint` → bloqueo por contraseña
+
+---
+
+## 🚀 Comandos de Servicio (memorizar)
+
 ```bash
-sudo supervisorctl restart backend
-sudo supervisorctl restart frontend
-sudo supervisorctl restart all
-sudo supervisorctl status
+sudo supervisorctl status                  # Estado de todos los servicios
+sudo supervisorctl restart backend         # Reinicia backend (hot reload activo, solo si cambia .env)
+sudo supervisorctl restart frontend        # Reinicia frontend
+sudo supervisorctl restart all             # Reinicia todo
+
+# Logs
+tail -n 50 /var/log/supervisor/backend.err.log
+tail -n 50 /var/log/supervisor/backend.out.log
+tail -n 50 /var/log/supervisor/frontend.err.log
+
+# Dependencias
+pip install -r /app/backend/requirements.txt
+cd /app/frontend && yarn install           # ⚠️ NUNCA usar npm
+
+# Git (repo local en /app)
+cd /app && git status
+cd /app && git log --oneline -10
+cd /app && git remote -v
 ```
 
-## 🎯 Funcionalidades Implementadas
-### Core
-- CRUD Reservas con anticipo/balance/fecha-evento (`/api/reservations`)
-- Calendario mensual con filtros (`/api/calendar`)
-- Dashboard con estadísticas y gráficos (`/api/stats`, `/api/financials`)
-- Gestión de Socios/equipo (`/api/socios`)
+---
 
-### Apariencia (9 secciones en AppearancePage.jsx)
-Paleta de colores, tipografía, animaciones, formas/bordes, fondos, interfaz/espacio, tipos de evento, PDF, logo
+## 📚 Modelos MongoDB
 
-### Notificaciones Multi-canal
-- Email vía **Resend** (`/api/reminders/*`)
-- **Gmail OAuth** (`/api/oauth/gmail/*`)
-- **Telegram Bot** (`/api/telegram/*`)
-- **ntfy.sh** (`/api/ntfy/*`)
-- **Web Push VAPID** (`/api/push/*`)
-- WhatsApp link automático
-
-### Base de Datos (`/api/backup/*`, `/api/data/*`)
-- JSON backup/restore
-- Auto-backup con APScheduler
-- CSV/Excel import/export
-- Cambio dinámico de MongoDB URL
-
-### GitHub & Actualizaciones (NUEVO)
-- `/api/github/config` — guardar URL repo + token opcional
-- `/api/github/check-updates` — compara commits con GitHub API
-- `/api/github/apply-update` — ejecuta `git pull` y refleja cambios
-- `/api/ai-context` — GET/POST este mismo contexto (auto-persistente)
-
-### Seguridad
-- Contraseña de app (`/api/security/*`) con bcrypt
-- Protección por página
-
-## 🔑 Integraciones que requieren claves (opcionales)
-Guardadas en `app_settings` MongoDB:
-- `google_client_id`, `google_client_secret` (Gmail OAuth)
-- `resend_api_key` (email)
-- `telegram_bot_token`, `telegram_chat_id`
-- `ntfy_topic`
-- `vapid_public_key`, `vapid_private_key`
-- `github_repo_url`, `github_token` (opcional para repos privados)
-
-## 📚 Modelos MongoDB principales
-### `reservations`
-```json
+### Colección `reservations`
+```python
 {
-  "id": "uuid", "client_name", "client_phone", "event_type",
-  "event_date": "YYYY-MM-DD", "total_amount", "advance_amount",
-  "balance", "package", "status", "notes", "receipts": [...],
-  "created_at", "updated_at"
+  "id": "uuid",                        # str(uuid.uuid4()) — NUNCA ObjectId
+  "client_name": "str",
+  "client_phone": "str|null",
+  "client_email": "str|null",
+  "event_type": "str",                 # Ej: "Boda", "XV años", "Cumpleaños"
+  "event_date": "YYYY-MM-DD",
+  "event_time": "HH:MM|null",
+  "venue": "str|null",
+  "guests_count": "int|null",
+  "total_amount": "float",
+  "advance_paid": "float",             # anticipo
+  "balance": "float",                  # calculado: total_amount - advance_paid
+  "status": "Pendiente|Confirmada|Completada|Cancelada",
+  "package_type": "Básico|Intermedio|Completo|null",
+  "notes": "str|null",
+  "locations": [{"name":"", "address":"", "time":""}],
+  "assigned_partners": ["socio_id", ...],
+  "receipts": [{"id":"", "filename":"", "uploaded_at":""}],
+  "created_at": "ISO datetime",
+  "updated_at": "ISO datetime"
 }
 ```
 
-### `socios`
-```json
-{ "id": "uuid", "name", "role", "phone", "email", "photo_base64" }
+### Colección `socios`
+```python
+{
+  "id": "uuid",
+  "name": "str",
+  "role": "Fotógrafo|Videógrafo|Editor|Asistente|Otro",
+  "phone": "str|null",
+  "email": "str|null",
+  "notes": "str|null",
+  "rate_per_event": "float|null",
+  "photo_base64": "str|null",          # foto opcional
+  "created_at": "ISO datetime"
+}
 ```
 
-### `app_settings` (documento único)
-Contiene TODO: configuración de negocio, apariencia, integraciones, credenciales.
+### Colección `app_settings` (documento único, muchos campos)
+Contiene TODO: configuración de negocio, apariencia (9 secciones), integraciones,
+credenciales, `github_config`, `ai_context` (este documento), backup config,
+`saved_themes`, `app_password_hash`, y más.
 
-## ⚠️ Reglas críticas para trabajar en este código
-1. **NUNCA** usar `ObjectId` de MongoDB — SIEMPRE UUIDs (`str(uuid.uuid4())`)
-2. **NUNCA** modificar valores en `.env`
-3. **SIEMPRE** prefijar rutas backend con `/api`
-4. Frontend usa `import.meta.env.REACT_APP_BACKEND_URL` o `process.env.REACT_APP_BACKEND_URL`
-5. No hardcodear URLs ni puertos
-6. Al editar archivos existentes: usar `search_replace`, no reescribir
-7. Al agregar deps Python: actualizar `requirements.txt` y reinstalar
-8. Al agregar deps JS: usar `yarn add` (nunca npm)
-9. Hot reload activo — solo reiniciar si se cambia `.env` o se instalan deps
-
-## 🧪 Testing
-- Backend tests en `/app/backend/tests/`
-- Testing agent: `deep_testing_backend_v2`
-- Frontend testing: `auto_frontend_testing_agent`
-- `test_result.md` en raíz — protocolo de comunicación entre agentes
-
-## 🗂️ Cómo se conecta el repositorio GitHub
-El usuario configura la URL desde `DatabasePage.jsx` → sección "GitHub & Contexto IA".
-Se guarda en `app_settings.github_config`. Al pulsar "Buscar actualizaciones" en
-`UpdatesPage.jsx`, el backend compara el SHA del commit local con el remoto vía
-GitHub API pública (`/repos/{owner}/{repo}/commits`). Si hay cambios, ejecuta
-`git -C /app fetch && git -C /app reset --hard origin/main` y reinicia servicios.
+### Colección `themes`
+Temas de apariencia guardados por el usuario (Saved Themes en Apariencia).
 
 ---
+
+## 🔌 Endpoints Backend (con prefijo `/api`)
+
+### Reservaciones
+- `GET  /api/reservations` — lista
+- `POST /api/reservations` — crear
+- `GET  /api/reservations/{id}` — detalle
+- `PUT  /api/reservations/{id}` — actualizar
+- `DELETE /api/reservations/{id}` — borrar
+- `POST /api/reservations/{id}/receipts` — subir recibo
+- `DELETE /api/reservations/{id}/receipts/{receipt_id}`
+
+### Socios
+- `GET/POST /api/socios` · `GET/PUT/DELETE /api/socios/{id}` · `POST/DELETE /api/socios/{id}/photo`
+
+### Dashboard / Reportes
+- `GET /api/stats` — estadísticas generales
+- `GET /api/financials` — reporte financiero
+- `GET /api/calendar` — eventos del calendario
+- `GET /api/export/reservations` (CSV) / `GET /api/export/reservations/xlsx`
+- `POST /api/import/reservations`
+
+### Ajustes y Base de Datos
+- `GET/PUT /api/settings` · `GET/PUT /api/settings/appearance`
+- `GET /api/settings/database` (stats)
+- `POST /api/settings/database/test|connect|reset`
+- `POST /api/data/cleanup` · `DELETE /api/data/clear-all`
+
+### Backup
+- `GET /api/backup/download` · `POST /api/backup/create` · `POST /api/backup/restore`
+- `GET /api/backup/history` · `GET/DELETE /api/backup/{filename}` (download|delete)
+
+### Actualizaciones desktop
+- `GET /api/updates/history|latest|check|download|download/{id}`
+- `POST /api/updates/upload|dismiss` · `PUT /api/updates/{id}/set-latest`
+- `DELETE /api/updates/{id}` · `POST /api/download/package/rebuild`
+
+### Notificaciones y OAuth
+- `GET /api/oauth/gmail/start|callback|status` · `POST /api/oauth/gmail/test` · `DELETE /api/oauth/gmail/disconnect`
+- `GET /api/push/vapid-key` · `POST/DELETE /api/push/subscribe|unsubscribe` · `POST /api/push/test`
+- `POST /api/telegram/test` · `POST /api/ntfy/test`
+- `POST /api/reminders/test-email|send` · `GET /api/notifications/pending`
+
+### GitHub Integration (NUEVO — sesión Julio 2026)
+- `GET/POST /api/github/config` — guardar/leer repo_url, branch, token
+- `GET /api/github/check-updates` — compara SHA local vs remoto via GitHub API
+- `POST /api/github/apply-update` — ejecuta `git reset --hard origin/<branch>` y reinicia servicios
+
+### AI Context (NUEVO — sesión Julio 2026)
+- `GET /api/ai-context` — retorna este mismo documento
+- `POST /api/ai-context` — sobreescribe con `{content: string}`
+- `POST /api/ai-context/reset` — restaura al DEFAULT
+
+### Seguridad
+- `GET /api/security/status` · `POST /api/security/set-password|verify|remove-password` · `PUT /api/security/protection`
+
+### Temas
+- `GET/POST /api/themes` · `DELETE /api/themes/{id}`
+
+---
+
+## ⚙️ Funcionalidades Implementadas
+
+### Core (implementadas en las 38 iteraciones previas)
+- CRUD Reservas con anticipo/balance calculado automáticamente
+- Filtros: Tipo de Evento, Estado, Paquete, rango de fechas
+- Vista lista + botón "Mostrar más" (paginación 8)
+- Calendario mensual con pastillas por tipo de evento
+- Dashboard: 4 tarjetas (próximos, total reservas, total eventos, ingreso real) + gráfico
+- Sección "Próximas Reservas del mes" con 5 estilos visuales
+- Gestión de Socios: CRUD + foto + rol + tarifa
+- Recibos: subir archivos a reservas
+
+### Apariencia (9 secciones)
+1. Paleta de Colores (6 temas + hex + presets Aurora/Crystal/Minimal + saturación)
+2. Tipografía e Iconos (8 fuentes + 3 tamaños)
+3. Animaciones (velocidad + transición páginas + hover effects)
+4. Formas y Bordes (3 estilos borde + 5 cards + 3 botones + 4 sombras)
+5. Fondo y Colores (dark mode + intensidad + blur + gradiente + imagen URL)
+6. Interfaz y Espacio (densidad + sidebar compact + width + scrollbar + date format)
+7. Tipos de Evento (icono + color por tipo)
+8. Diseño de PDF (3 temas + export)
+9. Logo y Marca (sidebar + PDF logo separados)
+
+### Notificaciones Multi-canal
+- **Email**: Resend API key + Gmail OAuth (con token refresh automático)
+- **Push**: VAPID keys (web push nativo del browser + service worker)
+- **Telegram**: Bot token + chat ID
+- **ntfy.sh**: topic
+- **WhatsApp**: link automático generado (no requiere API)
+- Scheduler APScheduler: `check_and_send_reminders` + `check_and_push_reminders`
+
+### Base de Datos
+- Backup JSON manual y automático (APScheduler)
+- Restore desde JSON
+- Auto-backup a PC del cliente (hook `useAutoBackup`)
+- Import/Export CSV y Excel (openpyxl)
+- Cleanup: eliminar registros viejos con preview
+- Cambio dinámico de MONGO_URL (archivo `.db_override`)
+
+### Seguridad
+- Contraseña de app con bcrypt (`app_password_hash`)
+- Protección por página (LockScreen)
+
+### GitHub & Actualizaciones (NUEVO — sesión Julio 2026)
+- Configurar URL del repo + token opcional desde Base de Datos
+- Buscar actualizaciones (compara SHA local vs remoto)
+- Aplicar actualización (git reset --hard + restart servicios)
+- Este documento (ai-context) editable y auto-persistido
+
+---
+
+## 🎯 Historial de Sesiones y Cambios
+
+### 📅 Sesión Julio 2026 — Integración GitHub + Contexto IA
+**Peticiones del usuario (en orden cronológico)**:
+
+1. **"CONTINUA CON ESTE CODIGO"** (vacío) → IA respondió pidiendo repo o especificación.
+2. **"https://github.com/alejandropiedrasanta1-ui/CINEMA QUIERO QUE TRABAJES CON ESTE REPOSITORIO"**
+   - Clonado el repo a `/app`
+   - Creados `.env` files (habían sido gitignored)
+   - `pip install -r requirements.txt` + `yarn install`
+   - Servicios levantados (backend :8001 + frontend :3000)
+3. **"Necesito que actualizaciones esté conectado al repositorio de GitHub..."**
+   - Petición clarificada: sección en Base de Datos para pegar URL del repo,
+     apartado oculto con toda la lógica para próxima IA, botón en Actualizaciones
+     para detectar cambios del repo.
+4. **"Apartado de Contexto/Lógica IA lo guarde de manera oculta en el apartado de GitHub..."**
+   - Confirmación de plan: URL en Base de Datos, contexto oculto ahí también,
+     botón "Buscar actualizaciones" en Actualizaciones que aplica cambios.
+5. **[Esta petición]** — "Necesito que todo el contexto de toda la app esté guardado
+     en ese espacio, cada corrección, cada petición... quiero que testes toda la
+     app con unas 5 reservaciones y en socios."
+
+**Cambios implementados**:
+- Añadidos endpoints backend: `/api/github/*` y `/api/ai-context*` (server.py líneas ~2625-2900)
+- Añadidas funciones en `frontend/src/lib/api.js`: `getGithubConfig`, `saveGithubConfig`,
+  `checkGithubUpdates`, `applyGithubUpdate`, `getAiContext`, `saveAiContext`, `resetAiContext`
+- Nueva sección "GitHub & Contexto IA" en `DatabasePage.jsx` (colapsable, con modal editable)
+- Nueva sección "Actualizaciones desde GitHub" en `UpdatesPage.jsx` (panel oscuro)
+- Modal del contexto con toolbar: modo lectura/edición, copiar, resetear, guardar
+- Lógica de `check-updates` mejorada para evitar falsos positivos cuando local está adelantado
+
+**URL del preview activo** (job actual):
+`https://4c46c59f-58b0-4e2f-a739-f1c96f46602f.preview.emergentagent.com`
+
+**Correcciones aplicadas durante la sesión**:
+- URL del preview era `event-reserve-pro-5.preview.emergentagent.com` (hardcoded en server.py
+  para GOOGLE_REDIRECT_URI del job anterior) — la URL correcta para el job actual está en
+  `preview_endpoint` env var: `4c46c59f-58b0-4e2f-a739-f1c96f46602f.preview.emergentagent.com`
+- Lógica de `has_updates` en `/api/github/check-updates` corregida para no marcar
+  falsos positivos cuando el commit local no está en la lista de commits remotos.
+
+### 📅 Iteraciones anteriores (1..38, sesiones previas)
+El proyecto pasó por 38 iteraciones documentadas en `/app/test_reports/iteration_*.json`.
+Las principales áreas cubiertas fueron:
+- Iteraciones 1-6: Setup base + CRUD reservaciones + calendario
+- Iteraciones 7-14: Socios + backup + import/export
+- Iteraciones 15-19: Apariencia (9 secciones) + PDF + logo
+- Iteraciones 20-27: Notificaciones (email, telegram, ntfy, push, whatsapp)
+- Iteraciones 28-33: Seguridad + contraseña de app + LockScreen
+- Iteraciones 34-38: Actualizaciones desktop (.exe) + auto-backup PC + refinamientos
+
+---
+
+## 🧪 Testing
+
+### Protocolo (definido en `/app/test_result.md`)
+- `deep_testing_backend_v2` para backend — SIEMPRE llamar antes de finalizar
+- `auto_frontend_testing_agent` para frontend — SOLO con permiso explícito del usuario
+- Actualizar `test_result.md` ANTES de invocar cualquier testing agent
+- Nunca editar la sección "Testing Protocol" del archivo
+
+### Tests unitarios existentes
+- `/app/backend/tests/test_iteration*.py` — tests por iteración
+- `/app/backend/tests/test_reservations.py` — CRUD reservas
+- `/app/backend/tests/test_security.py` — contraseña de app
+- `/app/backend/tests/test_backup_features.py|test_backup_restore.py` — respaldos
+- `/app/backend/tests/test_new_features.py` — features recientes
+
+### Credenciales
+- Ver `/app/memory/test_credentials.md`
+- Sin autenticación por defecto (LockScreen opcional via contraseña)
+
+---
+
+## ⚠️ REGLAS ABSOLUTAS AL EDITAR ESTE CÓDIGO
+
+1. **NUNCA** usar `ObjectId` de MongoDB — SIEMPRE UUIDs (`str(uuid.uuid4())`)
+2. **NUNCA** modificar valores en `backend/.env` ni `frontend/.env`
+3. **NUNCA** hardcodear URLs, puertos ni claves
+4. **SIEMPRE** prefijar rutas backend con `/api`
+5. **NUNCA** ejecutar `rm -rf /app/.git` o `.emergent`
+6. **NUNCA** hacer operaciones de escritura git (remote remove, force push, etc.) — usar botón "Save to Github" del chat
+7. **NO** usar `npm` — solo `yarn`
+8. **NO** hacer downgrades de versión basado en cutoff de conocimiento
+9. **SIEMPRE** usar `search_replace` para editar archivos existentes; `bulk_file_writer` solo para archivos nuevos
+10. **SIEMPRE** añadir librerías Python nuevas a `requirements.txt` antes de `pip install`
+11. **NUNCA** confirmar que un bug está arreglado sin llamar al `testing_agent`
+12. Hot reload activo — reiniciar servicios solo cuando se cambia `.env` o se instalan deps
+13. Al añadir features de LLM: llamar `integration_playbook_expert_v2` y usar `EMERGENT_LLM_KEY` con `emergentintegrations`
+
+---
+
+## 🎨 Convenciones de UI/Diseño (design_guidelines.json)
+
+- **Font family principal**: `Cabinet Grotesk, sans-serif` para headings
+- **Estilo visual**: Glass morphism (blur + gradientes translucidos)
+- **Preset por defecto**: Aurora (verde-esmeralda + purpura-indigo)
+- **Radius por defecto**: `rounded` (17px)
+- **Botones primarios**: `.btn-primary` (gradient + shadow)
+- **Cards**: `.glass` (backdrop-blur + border-white/40)
+- **Animaciones**: framer-motion con `fadeUp` (opacity + y=20 → 0) y `stagger` (0.08s)
+- **Data-testid**: usar convención kebab-case, ej: `github-check-updates-btn`, `db-block-toggle-github`
+
+---
+
+## 🔄 Cómo Retomar el Trabajo (para la próxima IA)
+
+1. **Lee este documento COMPLETO** desde el primer carácter hasta aquí.
+2. Verifica servicios: `sudo supervisorctl status` — todos deben estar RUNNING.
+3. Verifica backend: `curl http://localhost:8001/api/` → `{"message":"Event Reservation API"}`
+4. Verifica frontend: abre la URL de preview del job actual (ver `preview_endpoint` env var).
+5. Lee `/app/test_result.md` para conocer el estado del último testing.
+6. Lee `/app/memory/PRD.md` (PRD original — más corto).
+7. Actualiza este documento con TUS cambios al final del "Historial de Sesiones".
+8. Al finalizar: llama `testing_agent` para validar antes de `finish`.
+
+---
+
+## 📞 Contacto y Notas Finales
+
+- **Cliente**: Alejandro Piedrasanta (Cinema Productions, Guatemala)
+- **Idioma preferido**: Español (respuestas siempre en español)
+- **Moneda por defecto**: GTQ (Quetzal guatemalteco: Q)
+- **Formato de fecha**: DD/MM/YYYY
+- **Locale**: `es-GT` para toLocaleString
+
 **Última actualización de este contexto**: se auto-actualiza al guardar cambios.
+Cuando termines una sesión, ACTUALIZA el "Historial de Sesiones" arriba y guarda.
 """
 
 
