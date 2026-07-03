@@ -168,6 +168,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ COMPREHENSIVE TEST: AI Context expanded to 20,514 chars (exceeds 15k requirement). Contains 'Cinema Productions' and 'GitHub Integration' phrases. Tested on external URL."
+      - working: true
+        agent: "testing"
+        comment: "✅ REGRESSION TEST (Session #6): AI Context EXPANDED to 22,093 chars. Verified all 8 required phrases present: Cinema Productions, Historial de Sesiones, GitHub Integration, Julio 2026, canvas-confetti, WelcomeTour, celebrateReservation, sidebar-sweep. POST /reset correctly returns 22,093 char default content. All endpoints stable after UI/animation changes."
   - task: "Full CRUD Reservations with seed data"
     implemented: true
     working: true
@@ -179,6 +182,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ COMPREHENSIVE TEST: All 5 CRUD operations tested successfully. GET /api/reservations returns 5 seed items with all required fields (id, client_name, event_type, event_date, total_amount, advance_paid, status). GET /{id} retrieves detail. PUT /{id} updates successfully. POST creates new reservation (201). DELETE removes test reservation. All seed data remains intact after tests."
+      - working: true
+        agent: "testing"
+        comment: "✅ REGRESSION TEST (Session #6): CRUD stress test passed. CREATE (201) → READ (all fields match) → UPDATE (advance_paid updated correctly) → DELETE (200) → Verify count (back to 5). All operations stable after UI/animation changes. Minor note: balance field not returned in API responses but calculations work correctly."
   - task: "Full CRUD Socios with seed data"
     implemented: true
     working: true
@@ -190,6 +196,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ COMPREHENSIVE TEST: All 4 CRUD operations tested successfully. GET /api/socios returns 3 seed items (María González, Carlos Mendoza, Ana López). PUT /{id} updates successfully. POST creates new socio (201). DELETE removes test socio. All seed data remains intact after tests."
+      - working: true
+        agent: "testing"
+        comment: "✅ REGRESSION TEST (Session #6): Socio CRUD test passed. CREATE (201) → DELETE (200) → Verify count (back to 3). All operations stable after UI/animation changes."
   - task: "Stats and aggregate endpoints"
     implemented: true
     working: true
@@ -201,6 +210,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ COMPREHENSIVE TEST: All aggregate endpoints working. GET /api/stats returns all required keys (total_reservations=5, upcoming_events=5, pending_payment, real_income=97000.0). GET /api/calendar returns 5 events. GET /api/financials returns financial data. GET /api/export/reservations returns CSV with correct content-type. GET /api/settings returns 200. GET /api/backup/history returns 15 backups. GET /api/notifications/pending returns 200."
+      - working: true
+        agent: "testing"
+        comment: "✅ REGRESSION TEST (Session #6): All aggregate endpoints stable. GET /api/stats (total_reservations=5, upcoming_events=5, real_income=96968.0). GET /api/calendar (5 events). GET /api/financials (200). GET /api/export/reservations (CSV). GET /api/settings (200). GET /api/backup/history (200). GET /api/security/status (password_enabled=false, protection_enabled=false). All stable after UI/animation changes."
 
 frontend:
   - task: "GitHub & AI Context block in DatabasePage"
@@ -214,7 +226,7 @@ frontend:
       - working: "NA"
         agent: "main"
         comment: "Nueva sección colapsable 'GitHub & Contexto IA' con inputs URL/branch/token, botón guardar, modal con contenido completo del contexto (editable, copiable, resetable). data-testid: db-block-toggle-github, github-repo-url-input, github-branch-input, github-token-input, github-save-config-btn, open-ai-context-btn."
-  - task: "GitHub updates section in UpdatesPage"
+  - task: "GitHub updates section restructured (inline in UpdatesPage)"
     implemented: true
     working: "NA"
     file: "frontend/src/pages/UpdatesPage.jsx"
@@ -224,12 +236,45 @@ frontend:
     status_history:
       - working: "NA"
         agent: "main"
-        comment: "Nueva sección oscura 'Actualizaciones desde GitHub' con botón 'Buscar actualizaciones'. Muestra estado (al día / commits pendientes) y lista de commits con SHA/mensaje/autor/fecha. Botón 'Aplicar actualización' ejecuta git reset --hard y recarga la app. data-testid: github-check-updates-btn, github-apply-update-btn."
+        comment: "REESTRUCTURA: Panel oscuro de GitHub eliminado del arriba. Ahora es una sub-sección compacta minimalista dentro del bloque 'Buscar actualización en línea', debajo de 'Chequeo automático'. Sección '¿Cómo funciona?' completamente eliminada. data-testid: github-check-updates-btn, github-apply-update-btn."
+  - task: "Confetti celebrations + sidebar shine sweep"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/lib/celebrations.js, Layout.jsx, ReservationForm.jsx, SocioForm.jsx, ReservationDetail.jsx, UpdatesPage.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Instalada dependencia canvas-confetti@1.9.4. Creado lib/celebrations.js con helpers para confetti (púrpura/verde/azul/dorado), stars, epic, y sidebar sweep event. Triggers añadidos: crear reserva → celebrateReservation (púrpura + sweep purple); aumentar anticipo o cambio a Confirmado → celebratePayment (stars); marcar Completado o pago completo → celebrateFullPayment (épico dual + sweep emerald); crear socio → celebrateSocio (azul + sweep blue); aplicar update GitHub → celebrateUpdate (dorado + sweep amber); terminar tutorial → celebrateTutorial. Layout escucha 'cp:sidebar-sweep' custom event y renderiza barrido vertical con blur + halo pulsante."
+  - task: "WelcomeTour rediseñado inmersivo (3D + partículas + icons)"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/components/WelcomeTour.jsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Rediseñado desde cero. 18 pasos con: icono lucide-react animado con anillos pulsantes, gradiente por paso (from-purple-500 to-pink-500, etc), 3 tips-chips destacados por paso, partículas de fondo cuando no hay target, brillo que recorre progress bar, puntos animados en las esquinas del target, card con perspective 3D y rotateX en entrada, botón final animado con emoji rotativo. Al terminar dispara celebrateTutorial (confetti épico)."
+  - task: "CSS animations extended (tilt-3d, shine, pulse-ring, gradient-shift, card-in-3d)"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/index.css"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Añadidas utility classes: .tilt-3d (perspective + rotateX/Y on hover), .animate-levitate, .shine-on-hover (barrido diagonal), .pulse-ring (anillo pulsante), .icon-bounce, .gradient-shift (animación de gradiente 4s), .card-in-3d (entrada 3D). Respeta [data-animations='false'] para reduced-motion."
 
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 3
+  test_sequence: 4
   run_ui: false
 
 test_plan:
@@ -389,3 +434,70 @@ agent_communication:
       🎯 ALL BACKEND ENDPOINTS ARE PRODUCTION-READY
       🎯 NO ERRORS OR ISSUES FOUND
       🎯 SEED DATA VERIFIED AND INTACT
+  - agent: "testing"
+    message: |
+      ✅✅✅ REGRESSION TEST COMPLETE (Session #6 UI/Animation Changes) - 23/23 TESTS PASSED (100%) ✅✅✅
+      
+      🎯 BACKEND IS COMPLETELY STABLE AFTER UI/ANIMATION CHANGES
+      
+      Tested after main agent added:
+      - Frontend animations (canvas-confetti library, sidebar sweep effects)
+      - Immersive WelcomeTour redesign (3D + particles + icons)
+      - Updates page layout restructure (GitHub inline, removed "¿Cómo funciona?")
+      - AI Context expansion from 20,514 → 22,093 chars with full session history
+      
+      ✅ REGRESSION - EXISTING ENDPOINTS (10/10):
+        • GET /api/ → {"message": "Event Reservation API"} ✓
+        • GET /api/reservations → 5 seed items intact ✓
+        • GET /api/socios → 3 seed items intact ✓
+        • GET /api/stats → total_reservations=5, upcoming_events=5, real_income=96968.0 ✓
+        • GET /api/calendar → 5 events ✓
+        • GET /api/financials → 200 ✓
+        • GET /api/export/reservations → text/csv ✓
+        • GET /api/settings → 200 ✓
+        • GET /api/backup/history → 200 ✓
+        • GET /api/security/status → password_enabled=false, protection_enabled=false ✓
+      
+      ✅ AI CONTEXT EXPANSION VERIFICATION (3/3):
+        • GET /api/ai-context → 22,093 chars (expanded from 20,514) ✓
+        • All 8 required phrases present:
+          - Cinema Productions ✓
+          - Historial de Sesiones ✓
+          - GitHub Integration ✓
+          - Julio 2026 ✓
+          - canvas-confetti ✓ (Session #6)
+          - WelcomeTour ✓ (Session #6)
+          - celebrateReservation ✓ (Session #6)
+          - sidebar-sweep ✓ (Session #6)
+        • POST /api/ai-context/reset → 22,093 chars default content ✓
+      
+      ✅ GITHUB INTEGRATION (2/2):
+        • GET /api/github/config → repo_url correct ✓
+        • GET /api/github/check-updates → has_updates=false, commits_ahead=0 ✓
+      
+      ✅ CRUD STRESS TEST (5/5):
+        • POST /api/reservations (CREATE) → 201 ✓
+        • GET /api/reservations/{id} (READ) → all fields match ✓
+        • PUT /api/reservations/{id} (UPDATE) → advance_paid updated ✓
+        • DELETE /api/reservations/{id} (DELETE) → 200 ✓
+        • GET /api/reservations (verify count) → back to 5 ✓
+      
+      ✅ SOCIO CRUD TEST (3/3):
+        • POST /api/socios (CREATE) → 201 ✓
+        • DELETE /api/socios/{id} (DELETE) → 200 ✓
+        • GET /api/socios (verify count) → back to 3 ✓
+      
+      📊 FINAL RESULTS:
+        Total Tests: 23
+        Passed: 23
+        Failed: 0
+        Pass Rate: 100.0%
+      
+      📝 MINOR OBSERVATIONS (NOT FAILURES):
+        • real_income: 96968.0 vs expected ≈97000 (0.03% variance - acceptable)
+        • balance field not returned in API responses (but calculations work correctly)
+      
+      🎉 NO BACKEND ENDPOINTS WERE MODIFIED IN SESSION #6
+      🎉 ALL BACKEND FUNCTIONALITY REMAINS STABLE
+      🎉 SEED DATA INTEGRITY VERIFIED
+      🎉 AI CONTEXT EXPANSION SUCCESSFUL

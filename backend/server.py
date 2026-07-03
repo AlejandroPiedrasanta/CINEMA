@@ -2985,18 +2985,42 @@ Temas de apariencia guardados por el usuario (Saved Themes en Apariencia).
 4. **"Apartado de Contexto/Lógica IA lo guarde de manera oculta en el apartado de GitHub..."**
    - Confirmación de plan: URL en Base de Datos, contexto oculto ahí también,
      botón "Buscar actualizaciones" en Actualizaciones que aplica cambios.
-5. **[Esta petición]** — "Necesito que todo el contexto de toda la app esté guardado
-     en ese espacio, cada corrección, cada petición... quiero que testes toda la
-     app con unas 5 reservaciones y en socios."
+5. **"Necesito que todo el contexto de toda la app esté guardado en ese espacio, cada
+     corrección, cada petición... quiero que testes toda la app con unas 5 reservaciones
+     y en socios."**
+   - Contexto expandido de 5,705 → 20,514 caracteres
+   - Seed data: 5 reservas + 3 socios
+   - Testing 22/22 tests pasados
+6. **"En el apartado de seguridad agregar 2 funciones más...tutorial de bienvenida
+     mejor...agregar muchas animaciones en toda la app...3D...confetti...actualizaciones
+     minimalista con GitHub dentro."**
+   - Reestructuración de UpdatesPage: quitado "¿Cómo funciona?", GitHub movido como
+     sub-sección compacta dentro de "Buscar actualización en línea"
+   - Instalada dependencia `canvas-confetti@1.9.4`
+   - Creado `frontend/src/lib/celebrations.js` con helpers: fireConfetti, fireEpic,
+     fireStars, triggerSidebarSweep, celebrateReservation, celebratePayment,
+     celebrateFullPayment, celebrateSocio, celebrateUpdate, celebrateTutorial
+   - Confetti disparado en: crear reserva (púrpura), aumentar anticipo (verde stars),
+     pago completo (épico dual), crear socio (azul), aplicar update GitHub (dorado),
+     terminar tutorial
+   - Layout.jsx: escucha `cp:sidebar-sweep` custom event y renderiza un barrido
+     de luz vertical + halo pulsante en el sidebar (colores: purple/emerald/blue/amber)
+   - WelcomeTour rediseñado desde cero: 18 pasos con icono lucide-react animado,
+     gradiente por paso, tips-chips destacados, partículas de fondo, brillo que
+     recorre progress bar, puntos animados en las esquinas del target, card
+     con perspective 3D
+   - CSS extendido con clases: `.tilt-3d`, `.animate-levitate`, `.shine-on-hover`,
+     `.pulse-ring`, `.icon-bounce`, `.gradient-shift`, `.card-in-3d`
 
 **Cambios implementados**:
 - Añadidos endpoints backend: `/api/github/*` y `/api/ai-context*` (server.py líneas ~2625-2900)
 - Añadidas funciones en `frontend/src/lib/api.js`: `getGithubConfig`, `saveGithubConfig`,
   `checkGithubUpdates`, `applyGithubUpdate`, `getAiContext`, `saveAiContext`, `resetAiContext`
 - Nueva sección "GitHub & Contexto IA" en `DatabasePage.jsx` (colapsable, con modal editable)
-- Nueva sección "Actualizaciones desde GitHub" en `UpdatesPage.jsx` (panel oscuro)
-- Modal del contexto con toolbar: modo lectura/edición, copiar, resetear, guardar
-- Lógica de `check-updates` mejorada para evitar falsos positivos cuando local está adelantado
+- Reestructura de `UpdatesPage.jsx` (GitHub inline + eliminado ¿Cómo funciona?)
+- Confetti trigger en: `ReservationForm`, `SocioForm`, `ReservationDetail`, `UpdatesPage`, `WelcomeTour`
+- Sidebar sweep event listener en `Layout.jsx`
+- WelcomeTour totalmente rediseñado con animaciones 3D e iconos por paso
 
 **URL del preview activo** (job actual):
 `https://4c46c59f-58b0-4e2f-a739-f1c96f46602f.preview.emergentagent.com`

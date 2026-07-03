@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/context/SettingsContext";
 import { FORM_DESIGN_CONFIGS } from "@/lib/formDesigns";
+import { celebrateSocio } from "@/lib/celebrations";
 
 const ROLES = ["Fotógrafo", "Videógrafo", "Asistente"];
 
@@ -55,7 +56,12 @@ export default function SocioForm({ socio, onClose, onSaved }) {
       if (isEdit) saved = await updateSocio(socio.id, payload);
       else        saved = await createSocio(payload);
       if (photoFile) await uploadSocioPhoto(saved.id, photoFile);
-      toast({ title: isEdit ? "Socio actualizado" : "Socio creado" });
+      if (isEdit) {
+        toast({ title: "Socio actualizado" });
+      } else {
+        toast({ title: "🎉 ¡Socio agregado al equipo!" });
+        celebrateSocio();
+      }
       onSaved();
     } catch (err) {
       toast({ title:"Error al guardar", description:err.response?.data?.detail||err.message||"Error", variant:"destructive" });

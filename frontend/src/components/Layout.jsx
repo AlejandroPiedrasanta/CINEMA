@@ -54,6 +54,25 @@ export default function Layout({ children }) {
   const presetLabel = PRESETS.find(p => p.id === preset)?.name || "Glass Aurora";
   const sidebarLogoH = Math.min(Math.max(logoSize || 40, 24), 80);
 
+  // Sidebar sweep (barrido de luz al crear reserva/socio/etc)
+  const [sweep, setSweep] = useState(null);
+  useEffect(() => {
+    const handler = (e) => {
+      const color = e.detail?.color || "purple";
+      setSweep({ color, ts: Date.now() });
+      setTimeout(() => setSweep(null), 1300);
+    };
+    window.addEventListener("cp:sidebar-sweep", handler);
+    return () => window.removeEventListener("cp:sidebar-sweep", handler);
+  }, []);
+
+  const sweepGradient = {
+    purple:  "linear-gradient(180deg, transparent 0%, rgba(139,92,246,0) 30%, rgba(167,139,250,0.85) 50%, rgba(139,92,246,0) 70%, transparent 100%)",
+    emerald: "linear-gradient(180deg, transparent 0%, rgba(16,185,129,0) 30%, rgba(52,211,153,0.85) 50%, rgba(16,185,129,0) 70%, transparent 100%)",
+    blue:    "linear-gradient(180deg, transparent 0%, rgba(59,130,246,0) 30%, rgba(96,165,250,0.85) 50%, rgba(59,130,246,0) 70%, transparent 100%)",
+    amber:   "linear-gradient(180deg, transparent 0%, rgba(245,158,11,0) 30%, rgba(251,191,36,0.85) 50%, rgba(245,158,11,0) 70%, transparent 100%)",
+  };
+
   // "island" always uses islandMargins for margins; no pill style
   const compact = sidebarCompact;
 
@@ -124,9 +143,44 @@ export default function Layout({ children }) {
       <WelcomeTour />
       {/* Desktop Sidebar */}
       <aside
-        className="hidden md:flex flex-col min-h-screen glass-sidebar fixed left-0 top-0 z-20 transition-all duration-300"
+        className="hidden md:flex flex-col min-h-screen glass-sidebar fixed left-0 top-0 z-20 transition-all duration-300 overflow-hidden"
         style={{ width: sidebarWidth, ...sidebarExtra }}
       >
+        {/* Sweep overlay — barrido de luz épico */}
+        <AnimatePresence>
+          {sweep && (
+            <motion.div
+              key={sweep.ts}
+              initial={{ y: "-100%", opacity: 0 }}
+              animate={{ y: "100%", opacity: [0, 1, 1, 0] }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.2, ease: "easeInOut" }}
+              className="pointer-events-none absolute inset-0 z-40"
+              style={{
+                background: sweepGradient[sweep.color] || sweepGradient.purple,
+                mixBlendMode: "screen",
+                filter: "blur(6px)",
+              }}
+            />
+          )}
+        </AnimatePresence>
+        {/* Halo lateral pulsante */}
+        <AnimatePresence>
+          {sweep && (
+            <motion.div
+              key={`halo-${sweep.ts}`}
+              initial={{ opacity: 0, boxShadow: "inset 0 0 0px rgba(255,255,255,0)" }}
+              animate={{ opacity: [0, 1, 0], boxShadow: [
+                "inset 0 0 0px rgba(255,255,255,0)",
+                "inset 0 0 60px rgba(255,255,255,0.35)",
+                "inset 0 0 0px rgba(255,255,255,0)"
+              ]}}
+              transition={{ duration: 1.2 }}
+              className="pointer-events-none absolute inset-0 z-40"
+            />
+          )}
+        </AnimatePresence>
+
         {/* Logo area */}
         <div className={`border-b border-white/40 transition-all duration-300 ${compact ? "px-3 py-5 flex justify-center" : "px-6 py-6"}`}>
           {compact ? (

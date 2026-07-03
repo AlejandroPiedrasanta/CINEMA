@@ -1,0 +1,163 @@
+{
+  "_meta": {
+    "created_at": "2026-07-03T03:30:08.132895+00:00",
+    "label": "auto_pre_cleanup"
+  },
+  "reservations": [
+    {
+      "client_name": "Familia Ramírez",
+      "client_phone": "+502 5501-1111",
+      "client_email": "ramirez@correo.gt",
+      "event_type": "Boda",
+      "event_date": "2026-08-15",
+      "event_time": "17:00",
+      "venue": "Villa Toscana",
+      "guests_count": 150,
+      "total_amount": 25000.0,
+      "advance_paid": 10000.0,
+      "status": "Confirmada",
+      "notes": "Updated by comprehensive test",
+      "package_type": "Completo",
+      "receipt_images": [],
+      "created_at": "2026-07-03T03:20:05.563528+00:00",
+      "id": "6a472a653e0cd16ae8e3e6b0"
+    },
+    {
+      "client_name": "Sofía Aguirre",
+      "client_phone": "+502 5501-2222",
+      "client_email": "sofia@correo.gt",
+      "event_type": "XV años",
+      "event_date": "2026-09-20",
+      "event_time": "18:30",
+      "venue": "Salón Casa Rosada",
+      "guests_count": 120,
+      "total_amount": 18500.0,
+      "advance_paid": 5000.0,
+      "status": "Confirmada",
+      "notes": "Tema princesas",
+      "package_type": "Intermedio",
+      "receipt_images": [],
+      "created_at": "2026-07-03T03:20:05.575239+00:00",
+      "id": "6a472a653e0cd16ae8e3e6b1"
+    },
+    {
+      "client_name": "Empresa TechGT",
+      "client_phone": "+502 5501-3333",
+      "client_email": "eventos@techgt.com",
+      "event_type": "Corporativo",
+      "event_date": "2026-10-10",
+      "event_time": "09:00",
+      "venue": "Hotel Camino Real",
+      "guests_count": 80,
+      "total_amount": 15000.0,
+      "advance_paid": 7500.0,
+      "status": "Pendiente",
+      "notes": "Convención anual",
+      "package_type": "Intermedio",
+      "receipt_images": [],
+      "created_at": "2026-07-03T03:20:05.577129+00:00",
+      "id": "6a472a653e0cd16ae8e3e6b2"
+    },
+    {
+      "client_name": "Luis Herrera",
+      "client_phone": "+502 5501-4444",
+      "client_email": "luis@correo.gt",
+      "event_type": "Cumpleaños",
+      "event_date": "2026-07-28",
+      "event_time": "19:00",
+      "venue": "Terraza del Sol",
+      "guests_count": 45,
+      "total_amount": 6500.0,
+      "advance_paid": 2000.0,
+      "status": "Confirmada",
+      "notes": "40 años - sorpresa",
+      "package_type": "Básico",
+      "receipt_images": [],
+      "created_at": "2026-07-03T03:20:05.578717+00:00",
+      "assigned_partners": [
+        {
+          "socio_id": "6a472a653e0cd16ae8e3e6ad",
+          "name": "María González",
+          "role": "Fotógrafo",
+          "photo": null,
+          "photo_content_type": null,
+          "payment": 32,
+          "payment_status": "Pendiente"
+        }
+      ],
+      "id": "6a472a653e0cd16ae8e3e6b3"
+    },
+    {
+      "client_name": "Fundación Esperanza",
+      "client_phone": "+502 5501-5555",
+      "client_email": "contacto@esperanza.org",
+      "event_type": "Gala",
+      "event_date": "2026-11-05",
+      "event_time": "19:30",
+      "venue": "Museo Nacional",
+      "guests_count": 200,
+      "total_amount": 32000.0,
+      "advance_paid": 16000.0,
+      "status": "Confirmada",
+      "notes": "Gala benéfica anual",
+      "package_type": "Completo",
+      "receipt_images": [],
+      "created_at": "2026-07-03T03:20:05.580424+00:00",
+      "id": "6a472a653e0cd16ae8e3e6b4"
+    }
+  ],
+  "socios": [
+    {
+      "name": "María González",
+      "role": "Fotógrafo",
+      "phone": "+502 5555-1001",
+      "email": "maria@cinema.gt",
+      "notes": "Updated by test",
+      "rate_per_event": 500.0,
+      "photo": null,
+      "photo_content_type": null,
+      "created_at": "2026-07-03T03:20:05.547158+00:00",
+      "id": "6a472a653e0cd16ae8e3e6ad"
+    },
+    {
+      "name": "Carlos Mendoza",
+      "role": "Videógrafo",
+      "phone": "+502 5555-1002",
+      "email": "carlos@cinema.gt",
+      "notes": "Drone certificado",
+      "rate_per_event": 750.0,
+      "photo": null,
+      "photo_content_type": null,
+      "created_at": "2026-07-03T03:20:05.559684+00:00",
+      "id": "6a472a653e0cd16ae8e3e6ae"
+    },
+    {
+      "name": "Ana López",
+      "role": "Editor",
+      "phone": "+502 5555-1003",
+      "email": "ana@cinema.gt",
+      "notes": "Post-producción y color",
+      "rate_per_event": 400.0,
+      "photo": null,
+      "photo_content_type": null,
+      "created_at": "2026-07-03T03:20:05.561725+00:00",
+      "id": "6a472a653e0cd16ae8e3e6af"
+    }
+  ],
+  "app_settings": [
+    {
+      "ai_context": {
+        "content": "# 🧠 CONTEXTO COMPLETO PARA LA PRÓXIMA IA — Cinema Productions\n\n> **INSTRUCCIONES CRÍTICAS PARA LA IA QUE LEE ESTO:**\n> Este documento contiene TODO lo necesario para retomar el trabajo en este repositorio\n> sin perder contexto. Léelo COMPLETO antes de tocar cualquier archivo. Incluye:\n> - Arquitectura completa · Modelos · Endpoints · Reglas del negocio\n> - Historial de sesiones y cambios (por orden cronológico inverso)\n> - Peticiones del usuario y correcciones aplicadas\n> - Reglas OBLIGATORIAS de edición (no modificar `.env`, no hardcodear URLs, etc.)\n> - Comandos de servicios y flujos de testing\n\n---\n\n## 📌 Descripción del Proyecto\n**Cinema Productions** es un sistema completo de gestión de reservas de eventos para\nempresas de producción audiovisual (fotografía, video, eventos). Los clientes dan un\nanticipo por una fecha específica y la app gestiona todo el ciclo: reservas, pagos,\ncalendario, socios (equipo), notificaciones multi-canal, respaldos y sincronización\ncon GitHub.\n\n**Repositorio**: https://github.com/alejandropiedrasanta1-ui/CINEMA\n**Usuario/Cliente objetivo**: Alejandro Piedrasanta (Cinema Productions, Guatemala)\n\n---\n\n## 🏗️ Arquitectura Técnica\n\n| Capa | Tecnología | Versión |\n|------|-----------|---------|\n| Frontend | React + Craco + TailwindCSS + Framer Motion + Shadcn UI | React 19 |\n| Backend | FastAPI (Python) + Motor (async MongoDB) + APScheduler | FastAPI 0.110 |\n| Base de datos | MongoDB local (motor 3.3.1) | 4.x+ |\n| Router | React Router DOM | 7.5 |\n| Formularios | react-hook-form + zod | 7.56 / 3.24 |\n| PDFs | jspdf + html2canvas | 4.2 / 1.4 |\n| Gráficos | recharts | 3.6 |\n\n**Puertos internos** (NO modificar):\n- Backend: `0.0.0.0:8001` (uvicorn via supervisor)\n- Frontend: `0.0.0.0:3000` (craco start via supervisor)\n- MongoDB: `localhost:27017`\n\n**Kubernetes ingress**:\n- `/api/*` → backend puerto 8001\n- resto → frontend puerto 3000\n- URL externa está en `frontend/.env` como `REACT_APP_BACKEND_URL`\n\n---\n\n## 📁 Estructura de Archivos\n\n```\n/app/\n├── backend/\n│   ├── server.py             ★ FastAPI principal (~3000 líneas)\n│   ├── standalone_app.py     ★ Versión desktop embebida en .exe\n│   ├── requirements.txt      ★ Dependencias Python\n│   ├── .env                  ★ MONGO_URL, DB_NAME, CORS_ORIGINS\n│   ├── .db_override          → Override dinámico de MONGO_URL (opcional)\n│   ├── backups/              → Auto-backups JSON con timestamp\n│   ├── uploads/updates/      → Archivos .exe/.zip de actualizaciones desktop\n│   └── tests/                → Tests unitarios pytest (18+ iteraciones)\n├── frontend/\n│   ├── src/\n│   │   ├── App.js                       ← Router principal + transiciones dinámicas\n│   │   ├── index.js / index.css         ← Entry + estilos globales\n│   │   ├── context/SettingsContext.jsx  ★ Estado global (apariencia, idioma, etc.)\n│   │   ├── pages/\n│   │   │   ├── Dashboard.jsx            ← Estadísticas + próximas reservas\n│   │   │   ├── Reservations.jsx         ← Listado + filtros + botón Nueva Reserva\n│   │   │   ├── ReservationDetail.jsx    ← Detalle + editar + recibos\n│   │   │   ├── CalendarView.jsx         ← Vista mensual con pastillas\n│   │   │   ├── Socios.jsx               ← Gestión de equipo\n│   │   │   ├── DatabasePage.jsx         ← Backups + conexión + GitHub + IA context\n│   │   │   ├── AppearancePage.jsx       ← 9 secciones de personalización\n│   │   │   ├── Settings.jsx             ← Idioma, moneda, notif, negocio, desktop\n│   │   │   └── UpdatesPage.jsx          ← Actualizaciones desktop + GitHub sync\n│   │   ├── components/\n│   │   │   ├── Layout.jsx               ← Sidebar principal\n│   │   │   ├── WelcomeTour.jsx          ← Tour inicial 18 pasos\n│   │   │   ├── LockScreen.jsx           ← Bloqueo por contraseña de app\n│   │   │   ├── SocioForm.jsx / ReservationForm.jsx / LocationsSection.jsx / TeamSection.jsx / SecuritySection.jsx\n│   │   │   ├── appearance/              → Sub-secciones (SavedThemes, NavMenu, Tutorial, SectionShell)\n│   │   │   └── ui/                      → Shadcn (button, dialog, input, etc.)\n│   │   ├── lib/\n│   │   │   ├── api.js                   ← Axios configurado con REACT_APP_BACKEND_URL\n│   │   │   ├── eventConfig.js           ← Tipos de evento predefinidos\n│   │   │   ├── sectionSearch.js         ← Búsqueda global\n│   │   │   ├── formDesigns.js           ← Diseños de formulario\n│   │   │   ├── generatePDF.js           ← PDF de reservas\n│   │   │   └── utils.js                 ← Helpers (cn, etc.)\n│   │   └── hooks/\n│   │       ├── use-toast.js             ← Toasts (shadcn)\n│   │       ├── useNotifications.js      ← Web push VAPID\n│   │       └── useAutoBackup.js         ← Auto-backup a PC del cliente\n│   ├── public/\n│   │   ├── index.html\n│   │   ├── logo.png\n│   │   └── sw.js                        ← Service worker (web push)\n│   ├── plugins/health-check/            ← Plugin webpack de health check\n│   ├── package.json                     ★ Dependencias JS\n│   ├── .env                             ★ REACT_APP_BACKEND_URL\n│   ├── craco.config.js                  ★ Alias @/ + config webpack\n│   └── tailwind.config.js\n├── memory/\n│   ├── PRD.md                           ★ PRD original\n│   └── test_credentials.md              ★ Credenciales de test (leído por testing agents)\n├── test_reports/                        ← Reportes de iteraciones (2..38)\n├── test_result.md                       ★ Protocolo de comunicación testing_agent ↔ main_agent\n└── .emergent/emergent.yml               ← Metadata del job (env_image_name, job_id)\n```\n\n★ = archivo crítico\n\n---\n\n## 🔐 Variables de Entorno (NUNCA MODIFICAR VALORES)\n\n### backend/.env\n```\nMONGO_URL=\"mongodb://localhost:27017\"\nDB_NAME=\"cinema_productions\"\nCORS_ORIGINS=\"*\"\n```\n\n### frontend/.env\n```\nREACT_APP_BACKEND_URL=https://<job-id>.preview.emergentagent.com\nWDS_SOCKET_PORT=443\n```\n\n### Uso correcto en código\n- Frontend: `import.meta.env.REACT_APP_BACKEND_URL` o `process.env.REACT_APP_BACKEND_URL`\n- Backend: `os.environ.get('MONGO_URL')` / `os.environ.get('DB_NAME')`\n- **REGLA**: TODAS las rutas del backend deben tener prefijo `/api` (Kubernetes ingress)\n\n### Claves opcionales (guardadas en `app_settings` de MongoDB)\nSe configuran desde la UI, no en `.env`:\n- `google_client_id`, `google_client_secret` → Gmail OAuth\n- `resend_api_key` → email (Resend)\n- `telegram_bot_token`, `telegram_chat_id` → notif Telegram\n- `ntfy_topic` → notif ntfy.sh\n- `vapid_public_key`, `vapid_private_key`, `vapid_email` → web push\n- `github_config.repo_url`, `github_config.token`, `github_config.branch` → GitHub sync\n- `app_password_hash`, `app_password_hint` → bloqueo por contraseña\n\n---\n\n## 🚀 Comandos de Servicio (memorizar)\n\n```bash\nsudo supervisorctl status                  # Estado de todos los servicios\nsudo supervisorctl restart backend         # Reinicia backend (hot reload activo, solo si cambia .env)\nsudo supervisorctl restart frontend        # Reinicia frontend\nsudo supervisorctl restart all             # Reinicia todo\n\n# Logs\ntail -n 50 /var/log/supervisor/backend.err.log\ntail -n 50 /var/log/supervisor/backend.out.log\ntail -n 50 /var/log/supervisor/frontend.err.log\n\n# Dependencias\npip install -r /app/backend/requirements.txt\ncd /app/frontend && yarn install           # ⚠️ NUNCA usar npm\n\n# Git (repo local en /app)\ncd /app && git status\ncd /app && git log --oneline -10\ncd /app && git remote -v\n```\n\n---\n\n## 📚 Modelos MongoDB\n\n### Colección `reservations`\n```python\n{\n  \"id\": \"uuid\",                        # str(uuid.uuid4()) — NUNCA ObjectId\n  \"client_name\": \"str\",\n  \"client_phone\": \"str|null\",\n  \"client_email\": \"str|null\",\n  \"event_type\": \"str\",                 # Ej: \"Boda\", \"XV años\", \"Cumpleaños\"\n  \"event_date\": \"YYYY-MM-DD\",\n  \"event_time\": \"HH:MM|null\",\n  \"venue\": \"str|null\",\n  \"guests_count\": \"int|null\",\n  \"total_amount\": \"float\",\n  \"advance_paid\": \"float\",             # anticipo\n  \"balance\": \"float\",                  # calculado: total_amount - advance_paid\n  \"status\": \"Pendiente|Confirmada|Completada|Cancelada\",\n  \"package_type\": \"Básico|Intermedio|Completo|null\",\n  \"notes\": \"str|null\",\n  \"locations\": [{\"name\":\"\", \"address\":\"\", \"time\":\"\"}],\n  \"assigned_partners\": [\"socio_id\", ...],\n  \"receipts\": [{\"id\":\"\", \"filename\":\"\", \"uploaded_at\":\"\"}],\n  \"created_at\": \"ISO datetime\",\n  \"updated_at\": \"ISO datetime\"\n}\n```\n\n### Colección `socios`\n```python\n{\n  \"id\": \"uuid\",\n  \"name\": \"str\",\n  \"role\": \"Fotógrafo|Videógrafo|Editor|Asistente|Otro\",\n  \"phone\": \"str|null\",\n  \"email\": \"str|null\",\n  \"notes\": \"str|null\",\n  \"rate_per_event\": \"float|null\",\n  \"photo_base64\": \"str|null\",          # foto opcional\n  \"created_at\": \"ISO datetime\"\n}\n```\n\n### Colección `app_settings` (documento único, muchos campos)\nContiene TODO: configuración de negocio, apariencia (9 secciones), integraciones,\ncredenciales, `github_config`, `ai_context` (este documento), backup config,\n`saved_themes`, `app_password_hash`, y más.\n\n### Colección `themes`\nTemas de apariencia guardados por el usuario (Saved Themes en Apariencia).\n\n---\n\n## 🔌 Endpoints Backend (con prefijo `/api`)\n\n### Reservaciones\n- `GET  /api/reservations` — lista\n- `POST /api/reservations` — crear\n- `GET  /api/reservations/{id}` — detalle\n- `PUT  /api/reservations/{id}` — actualizar\n- `DELETE /api/reservations/{id}` — borrar\n- `POST /api/reservations/{id}/receipts` — subir recibo\n- `DELETE /api/reservations/{id}/receipts/{receipt_id}`\n\n### Socios\n- `GET/POST /api/socios` · `GET/PUT/DELETE /api/socios/{id}` · `POST/DELETE /api/socios/{id}/photo`\n\n### Dashboard / Reportes\n- `GET /api/stats` — estadísticas generales\n- `GET /api/financials` — reporte financiero\n- `GET /api/calendar` — eventos del calendario\n- `GET /api/export/reservations` (CSV) / `GET /api/export/reservations/xlsx`\n- `POST /api/import/reservations`\n\n### Ajustes y Base de Datos\n- `GET/PUT /api/settings` · `GET/PUT /api/settings/appearance`\n- `GET /api/settings/database` (stats)\n- `POST /api/settings/database/test|connect|reset`\n- `POST /api/data/cleanup` · `DELETE /api/data/clear-all`\n\n### Backup\n- `GET /api/backup/download` · `POST /api/backup/create` · `POST /api/backup/restore`\n- `GET /api/backup/history` · `GET/DELETE /api/backup/{filename}` (download|delete)\n\n### Actualizaciones desktop\n- `GET /api/updates/history|latest|check|download|download/{id}`\n- `POST /api/updates/upload|dismiss` · `PUT /api/updates/{id}/set-latest`\n- `DELETE /api/updates/{id}` · `POST /api/download/package/rebuild`\n\n### Notificaciones y OAuth\n- `GET /api/oauth/gmail/start|callback|status` · `POST /api/oauth/gmail/test` · `DELETE /api/oauth/gmail/disconnect`\n- `GET /api/push/vapid-key` · `POST/DELETE /api/push/subscribe|unsubscribe` · `POST /api/push/test`\n- `POST /api/telegram/test` · `POST /api/ntfy/test`\n- `POST /api/reminders/test-email|send` · `GET /api/notifications/pending`\n\n### GitHub Integration (NUEVO — sesión Julio 2026)\n- `GET/POST /api/github/config` — guardar/leer repo_url, branch, token\n- `GET /api/github/check-updates` — compara SHA local vs remoto via GitHub API\n- `POST /api/github/apply-update` — ejecuta `git reset --hard origin/<branch>` y reinicia servicios\n\n### AI Context (NUEVO — sesión Julio 2026)\n- `GET /api/ai-context` — retorna este mismo documento\n- `POST /api/ai-context` — sobreescribe con `{content: string}`\n- `POST /api/ai-context/reset` — restaura al DEFAULT\n\n### Seguridad\n- `GET /api/security/status` · `POST /api/security/set-password|verify|remove-password` · `PUT /api/security/protection`\n\n### Temas\n- `GET/POST /api/themes` · `DELETE /api/themes/{id}`\n\n---\n\n## ⚙️ Funcionalidades Implementadas\n\n### Core (implementadas en las 38 iteraciones previas)\n- CRUD Reservas con anticipo/balance calculado automáticamente\n- Filtros: Tipo de Evento, Estado, Paquete, rango de fechas\n- Vista lista + botón \"Mostrar más\" (paginación 8)\n- Calendario mensual con pastillas por tipo de evento\n- Dashboard: 4 tarjetas (próximos, total reservas, total eventos, ingreso real) + gráfico\n- Sección \"Próximas Reservas del mes\" con 5 estilos visuales\n- Gestión de Socios: CRUD + foto + rol + tarifa\n- Recibos: subir archivos a reservas\n\n### Apariencia (9 secciones)\n1. Paleta de Colores (6 temas + hex + presets Aurora/Crystal/Minimal + saturación)\n2. Tipografía e Iconos (8 fuentes + 3 tamaños)\n3. Animaciones (velocidad + transición páginas + hover effects)\n4. Formas y Bordes (3 estilos borde + 5 cards + 3 botones + 4 sombras)\n5. Fondo y Colores (dark mode + intensidad + blur + gradiente + imagen URL)\n6. Interfaz y Espacio (densidad + sidebar compact + width + scrollbar + date format)\n7. Tipos de Evento (icono + color por tipo)\n8. Diseño de PDF (3 temas + export)\n9. Logo y Marca (sidebar + PDF logo separados)\n\n### Notificaciones Multi-canal\n- **Email**: Resend API key + Gmail OAuth (con token refresh automático)\n- **Push**: VAPID keys (web push nativo del browser + service worker)\n- **Telegram**: Bot token + chat ID\n- **ntfy.sh**: topic\n- **WhatsApp**: link automático generado (no requiere API)\n- Scheduler APScheduler: `check_and_send_reminders` + `check_and_push_reminders`\n\n### Base de Datos\n- Backup JSON manual y automático (APScheduler)\n- Restore desde JSON\n- Auto-backup a PC del cliente (hook `useAutoBackup`)\n- Import/Export CSV y Excel (openpyxl)\n- Cleanup: eliminar registros viejos con preview\n- Cambio dinámico de MONGO_URL (archivo `.db_override`)\n\n### Seguridad\n- Contraseña de app con bcrypt (`app_password_hash`)\n- Protección por página (LockScreen)\n\n### GitHub & Actualizaciones (NUEVO — sesión Julio 2026)\n- Configurar URL del repo + token opcional desde Base de Datos\n- Buscar actualizaciones (compara SHA local vs remoto)\n- Aplicar actualización (git reset --hard + restart servicios)\n- Este documento (ai-context) editable y auto-persistido\n\n---\n\n## 🎯 Historial de Sesiones y Cambios\n\n### 📅 Sesión Julio 2026 — Integración GitHub + Contexto IA\n**Peticiones del usuario (en orden cronológico)**:\n\n1. **\"CONTINUA CON ESTE CODIGO\"** (vacío) → IA respondió pidiendo repo o especificación.\n2. **\"https://github.com/alejandropiedrasanta1-ui/CINEMA QUIERO QUE TRABAJES CON ESTE REPOSITORIO\"**\n   - Clonado el repo a `/app`\n   - Creados `.env` files (habían sido gitignored)\n   - `pip install -r requirements.txt` + `yarn install`\n   - Servicios levantados (backend :8001 + frontend :3000)\n3. **\"Necesito que actualizaciones esté conectado al repositorio de GitHub...\"**\n   - Petición clarificada: sección en Base de Datos para pegar URL del repo,\n     apartado oculto con toda la lógica para próxima IA, botón en Actualizaciones\n     para detectar cambios del repo.\n4. **\"Apartado de Contexto/Lógica IA lo guarde de manera oculta en el apartado de GitHub...\"**\n   - Confirmación de plan: URL en Base de Datos, contexto oculto ahí también,\n     botón \"Buscar actualizaciones\" en Actualizaciones que aplica cambios.\n5. **[Esta petición]** — \"Necesito que todo el contexto de toda la app esté guardado\n     en ese espacio, cada corrección, cada petición... quiero que testes toda la\n     app con unas 5 reservaciones y en socios.\"\n\n**Cambios implementados**:\n- Añadidos endpoints backend: `/api/github/*` y `/api/ai-context*` (server.py líneas ~2625-2900)\n- Añadidas funciones en `frontend/src/lib/api.js`: `getGithubConfig`, `saveGithubConfig`,\n  `checkGithubUpdates`, `applyGithubUpdate`, `getAiContext`, `saveAiContext`, `resetAiContext`\n- Nueva sección \"GitHub & Contexto IA\" en `DatabasePage.jsx` (colapsable, con modal editable)\n- Nueva sección \"Actualizaciones desde GitHub\" en `UpdatesPage.jsx` (panel oscuro)\n- Modal del contexto con toolbar: modo lectura/edición, copiar, resetear, guardar\n- Lógica de `check-updates` mejorada para evitar falsos positivos cuando local está adelantado\n\n**URL del preview activo** (job actual):\n`https://4c46c59f-58b0-4e2f-a739-f1c96f46602f.preview.emergentagent.com`\n\n**Correcciones aplicadas durante la sesión**:\n- URL del preview era `event-reserve-pro-5.preview.emergentagent.com` (hardcoded en server.py\n  para GOOGLE_REDIRECT_URI del job anterior) — la URL correcta para el job actual está en\n  `preview_endpoint` env var: `4c46c59f-58b0-4e2f-a739-f1c96f46602f.preview.emergentagent.com`\n- Lógica de `has_updates` en `/api/github/check-updates` corregida para no marcar\n  falsos positivos cuando el commit local no está en la lista de commits remotos.\n\n### 📅 Iteraciones anteriores (1..38, sesiones previas)\nEl proyecto pasó por 38 iteraciones documentadas en `/app/test_reports/iteration_*.json`.\nLas principales áreas cubiertas fueron:\n- Iteraciones 1-6: Setup base + CRUD reservaciones + calendario\n- Iteraciones 7-14: Socios + backup + import/export\n- Iteraciones 15-19: Apariencia (9 secciones) + PDF + logo\n- Iteraciones 20-27: Notificaciones (email, telegram, ntfy, push, whatsapp)\n- Iteraciones 28-33: Seguridad + contraseña de app + LockScreen\n- Iteraciones 34-38: Actualizaciones desktop (.exe) + auto-backup PC + refinamientos\n\n---\n\n## 🧪 Testing\n\n### Protocolo (definido en `/app/test_result.md`)\n- `deep_testing_backend_v2` para backend — SIEMPRE llamar antes de finalizar\n- `auto_frontend_testing_agent` para frontend — SOLO con permiso explícito del usuario\n- Actualizar `test_result.md` ANTES de invocar cualquier testing agent\n- Nunca editar la sección \"Testing Protocol\" del archivo\n\n### Tests unitarios existentes\n- `/app/backend/tests/test_iteration*.py` — tests por iteración\n- `/app/backend/tests/test_reservations.py` — CRUD reservas\n- `/app/backend/tests/test_security.py` — contraseña de app\n- `/app/backend/tests/test_backup_features.py|test_backup_restore.py` — respaldos\n- `/app/backend/tests/test_new_features.py` — features recientes\n\n### Credenciales\n- Ver `/app/memory/test_credentials.md`\n- Sin autenticación por defecto (LockScreen opcional via contraseña)\n\n---\n\n## ⚠️ REGLAS ABSOLUTAS AL EDITAR ESTE CÓDIGO\n\n1. **NUNCA** usar `ObjectId` de MongoDB — SIEMPRE UUIDs (`str(uuid.uuid4())`)\n2. **NUNCA** modificar valores en `backend/.env` ni `frontend/.env`\n3. **NUNCA** hardcodear URLs, puertos ni claves\n4. **SIEMPRE** prefijar rutas backend con `/api`\n5. **NUNCA** ejecutar `rm -rf /app/.git` o `.emergent`\n6. **NUNCA** hacer operaciones de escritura git (remote remove, force push, etc.) — usar botón \"Save to Github\" del chat\n7. **NO** usar `npm` — solo `yarn`\n8. **NO** hacer downgrades de versión basado en cutoff de conocimiento\n9. **SIEMPRE** usar `search_replace` para editar archivos existentes; `bulk_file_writer` solo para archivos nuevos\n10. **SIEMPRE** añadir librerías Python nuevas a `requirements.txt` antes de `pip install`\n11. **NUNCA** confirmar que un bug está arreglado sin llamar al `testing_agent`\n12. Hot reload activo — reiniciar servicios solo cuando se cambia `.env` o se instalan deps\n13. Al añadir features de LLM: llamar `integration_playbook_expert_v2` y usar `EMERGENT_LLM_KEY` con `emergentintegrations`\n\n---\n\n## 🎨 Convenciones de UI/Diseño (design_guidelines.json)\n\n- **Font family principal**: `Cabinet Grotesk, sans-serif` para headings\n- **Estilo visual**: Glass morphism (blur + gradientes translucidos)\n- **Preset por defecto**: Aurora (verde-esmeralda + purpura-indigo)\n- **Radius por defecto**: `rounded` (17px)\n- **Botones primarios**: `.btn-primary` (gradient + shadow)\n- **Cards**: `.glass` (backdrop-blur + border-white/40)\n- **Animaciones**: framer-motion con `fadeUp` (opacity + y=20 → 0) y `stagger` (0.08s)\n- **Data-testid**: usar convención kebab-case, ej: `github-check-updates-btn`, `db-block-toggle-github`\n\n---\n\n## 🔄 Cómo Retomar el Trabajo (para la próxima IA)\n\n1. **Lee este documento COMPLETO** desde el primer carácter hasta aquí.\n2. Verifica servicios: `sudo supervisorctl status` — todos deben estar RUNNING.\n3. Verifica backend: `curl http://localhost:8001/api/` → `{\"message\":\"Event Reservation API\"}`\n4. Verifica frontend: abre la URL de preview del job actual (ver `preview_endpoint` env var).\n5. Lee `/app/test_result.md` para conocer el estado del último testing.\n6. Lee `/app/memory/PRD.md` (PRD original — más corto).\n7. Actualiza este documento con TUS cambios al final del \"Historial de Sesiones\".\n8. Al finalizar: llama `testing_agent` para validar antes de `finish`.\n\n---\n\n## 📞 Contacto y Notas Finales\n\n- **Cliente**: Alejandro Piedrasanta (Cinema Productions, Guatemala)\n- **Idioma preferido**: Español (respuestas siempre en español)\n- **Moneda por defecto**: GTQ (Quetzal guatemalteco: Q)\n- **Formato de fecha**: DD/MM/YYYY\n- **Locale**: `es-GT` para toLocaleString\n\n**Última actualización de este contexto**: se auto-actualiza al guardar cambios.\nCuando termines una sesión, ACTUALIZA el \"Historial de Sesiones\" arriba y guarda.\n",
+        "updated_at": "2026-07-03T03:19:44.466427+00:00"
+      },
+      "github_config": {
+        "branch": "main",
+        "repo_url": "https://github.com/alejandropiedrasanta1-ui/CINEMA",
+        "last_check_at": "2026-07-03T03:24:20.558187+00:00",
+        "last_remote_sha": "ac609e8b2f1733bdce96c34a03385f5690c897af",
+        "token": ""
+      },
+      "id": "6a472468df1bf511976af8bf"
+    }
+  ]
+}

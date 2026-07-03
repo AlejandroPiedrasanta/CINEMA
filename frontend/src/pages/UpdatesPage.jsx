@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/context/SettingsContext";
 import { getUpdatesHistory, uploadAppUpdate, deleteUpdate, setLatestUpdate, getUpdateDownloadUrl, checkForUpdates,
   getGithubConfig, checkGithubUpdates, applyGithubUpdate } from "@/lib/api";
+import { celebrateUpdate } from "@/lib/celebrations";
 
 function formatBytes(bytes) {
   if (!bytes) return "—";
@@ -98,7 +99,8 @@ export default function UpdatesPage() {
     setGhApplying(true);
     try {
       const res = await applyGithubUpdate(true);
-      toast({ title: "Actualización aplicada ✓", description: `Nuevo commit: ${res.new_sha_short}. Reiniciando servicios…` });
+      toast({ title: "🎉 ¡Actualización aplicada!", description: `Nuevo commit: ${res.new_sha_short}. Reiniciando servicios…` });
+      celebrateUpdate();
       setTimeout(() => window.location.reload(), 5000);
     } catch (err) {
       toast({ title: "Error al aplicar", description: err?.response?.data?.detail || String(err), variant: "destructive" });
@@ -178,118 +180,6 @@ export default function UpdatesPage() {
         </p>
       </motion.div>
 
-      {/* ── GITHUB UPDATES SECTION ── */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}
-        className="rounded-3xl p-6 mb-5 border-2 border-slate-900/10"
-        style={{ background: "linear-gradient(135deg, rgba(30,41,59,0.95) 0%, rgba(15,23,42,0.98) 100%)" }}
-      >
-        <div className="flex items-start gap-4 mb-4">
-          <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center flex-shrink-0">
-            <Github size={22} className="text-white" />
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-lg font-black text-white" style={{ fontFamily: "Cabinet Grotesk, sans-serif" }}>
-                Actualizaciones desde GitHub
-              </p>
-              {ghConfig.repo_url && (
-                <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center gap-1">
-                  <GitBranch size={10} /> {ghConfig.branch || "main"}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-slate-400 mt-1">
-              {ghConfig.repo_url
-                ? "Sincroniza el código con tu repositorio remoto"
-                : "Configura primero la URL en Base de Datos → GitHub"}
-            </p>
-            {ghConfig.repo_url && (
-              <a href={ghConfig.repo_url} target="_blank" rel="noreferrer"
-                className="text-[11px] font-mono text-slate-300 hover:text-white flex items-center gap-1 mt-1.5 group">
-                <span className="truncate max-w-[400px]">{ghConfig.repo_url}</span>
-                <ExternalLink size={10} className="opacity-60 group-hover:opacity-100" />
-              </a>
-            )}
-          </div>
-          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-            onClick={handleCheckGithub}
-            disabled={ghChecking || !ghConfig.repo_url}
-            data-testid="github-check-updates-btn"
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-white text-slate-900 text-xs font-bold disabled:opacity-40 flex-shrink-0 hover:bg-slate-100 transition-all"
-          >
-            {ghChecking
-              ? <><Loader2 size={14} className="animate-spin" /> Buscando…</>
-              : <><RefreshCw size={14} /> Buscar actualizaciones</>}
-          </motion.button>
-        </div>
-
-        {/* Resultado del check */}
-        <AnimatePresence mode="wait">
-          {ghResult && !ghResult.has_updates && (
-            <motion.div key="uptodate"
-              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="mt-3 flex items-center gap-3 bg-emerald-500/15 border border-emerald-400/30 rounded-2xl p-4"
-            >
-              <CheckCircle2 size={20} className="text-emerald-400 flex-shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm font-black text-emerald-300">Todo al día ✓</p>
-                <p className="text-[11px] text-emerald-400/80">
-                  Local: <span className="font-mono">{ghResult.local_sha_short || "—"}</span> · Remoto: <span className="font-mono">{ghResult.remote_sha_short}</span>
-                </p>
-              </div>
-            </motion.div>
-          )}
-
-          {ghResult?.has_updates && (
-            <motion.div key="updates"
-              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="mt-3 space-y-3"
-            >
-              <div className="flex items-center gap-3 bg-amber-500/15 border border-amber-400/30 rounded-2xl p-4">
-                <AlertTriangle size={20} className="text-amber-400 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="text-sm font-black text-amber-300">
-                    {ghResult.commits_ahead} nuevo{ghResult.commits_ahead !== 1 ? "s" : ""} commit{ghResult.commits_ahead !== 1 ? "s" : ""} disponible{ghResult.commits_ahead !== 1 ? "s" : ""}
-                  </p>
-                  <p className="text-[11px] text-amber-400/80">
-                    Local: <span className="font-mono">{ghResult.local_sha_short}</span> → Remoto: <span className="font-mono">{ghResult.remote_sha_short}</span>
-                  </p>
-                </div>
-                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                  onClick={handleApplyGithub} disabled={ghApplying}
-                  data-testid="github-apply-update-btn"
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 text-slate-900 text-xs font-black hover:bg-amber-300 transition-all disabled:opacity-60"
-                >
-                  {ghApplying
-                    ? <><Loader2 size={12} className="animate-spin" /> Aplicando…</>
-                    : <><ArrowDownCircle size={12} /> Aplicar actualización</>}
-                </motion.button>
-              </div>
-
-              {/* Lista de commits */}
-              <div className="bg-white/5 backdrop-blur rounded-2xl p-3 max-h-64 overflow-auto">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider px-2 pb-2">Commits pendientes</p>
-                <div className="space-y-1">
-                  {ghResult.commits.map((c) => (
-                    <a key={c.full_sha} href={c.url} target="_blank" rel="noreferrer"
-                      className="flex items-start gap-3 p-2 rounded-xl hover:bg-white/5 transition-all group">
-                      <GitCommit size={14} className="text-slate-500 mt-0.5 flex-shrink-0 group-hover:text-white" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-slate-200 font-semibold truncate">{c.message}</p>
-                        <p className="text-[10px] text-slate-500">
-                          <span className="font-mono text-indigo-300">{c.sha}</span> · {c.author} · {c.date ? new Date(c.date).toLocaleString("es-GT") : ""}
-                        </p>
-                      </div>
-                      <ExternalLink size={10} className="text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1" />
-                    </a>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-
       {/* Stats */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
         className="grid grid-cols-3 gap-4 mb-6">
@@ -350,6 +240,99 @@ export default function UpdatesPage() {
             className={`relative w-12 h-6 rounded-full transition-all flex-shrink-0 ${autoCheckUpdates ? "btn-primary" : "bg-slate-200"}`}>
             <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${autoCheckUpdates ? "left-[26px]" : "left-0.5"}`} />
           </button>
+        </div>
+
+        {/* ── GitHub (minimalista, integrado) ── */}
+        <div className="mt-4 pt-4 border-t border-white/40">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center flex-shrink-0">
+              <Github size={14} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-xs font-bold text-slate-700">Actualizaciones desde GitHub</p>
+                {ghConfig.repo_url && (
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 flex items-center gap-1">
+                    <GitBranch size={8} /> {ghConfig.branch || "main"}
+                  </span>
+                )}
+              </div>
+              {ghConfig.repo_url ? (
+                <a href={ghConfig.repo_url} target="_blank" rel="noreferrer"
+                  className="text-[10px] font-mono text-slate-400 hover:text-slate-700 flex items-center gap-1 truncate max-w-[280px]">
+                  <span className="truncate">{ghConfig.repo_url.replace("https://github.com/", "")}</span>
+                  <ExternalLink size={9} />
+                </a>
+              ) : (
+                <p className="text-[10px] text-slate-400">Configura la URL en Base de Datos → GitHub</p>
+              )}
+            </div>
+            <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+              onClick={handleCheckGithub}
+              disabled={ghChecking || !ghConfig.repo_url}
+              data-testid="github-check-updates-btn"
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-bold disabled:opacity-40 hover:bg-slate-800 transition-all"
+            >
+              {ghChecking
+                ? <><Loader2 size={11} className="animate-spin" /> Buscando…</>
+                : <><Github size={11} /> Buscar</>}
+            </motion.button>
+          </div>
+
+          {/* Resultado del check GitHub — compacto */}
+          <AnimatePresence mode="wait">
+            {ghResult && !ghResult.has_updates && (
+              <motion.div key="gh-uptodate"
+                initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="mt-3 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2"
+              >
+                <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />
+                <p className="text-[11px] font-bold text-emerald-700 flex-1">Todo al día ✓</p>
+                <p className="text-[10px] font-mono text-emerald-600">{ghResult.remote_sha_short}</p>
+              </motion.div>
+            )}
+            {ghResult?.has_updates && (
+              <motion.div key="gh-updates"
+                initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className="mt-3 space-y-2"
+              >
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  <AlertTriangle size={14} className="text-amber-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold text-amber-700">
+                      {ghResult.commits_ahead} commit{ghResult.commits_ahead !== 1 ? "s" : ""} disponible{ghResult.commits_ahead !== 1 ? "s" : ""}
+                    </p>
+                    <p className="text-[10px] font-mono text-amber-600">
+                      {ghResult.local_sha_short} → {ghResult.remote_sha_short}
+                    </p>
+                  </div>
+                  <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                    onClick={handleApplyGithub} disabled={ghApplying}
+                    data-testid="github-apply-update-btn"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-[10px] font-black hover:bg-amber-600 transition-all disabled:opacity-60"
+                  >
+                    {ghApplying
+                      ? <><Loader2 size={10} className="animate-spin" /> Aplicando…</>
+                      : <><ArrowDownCircle size={10} /> Aplicar</>}
+                  </motion.button>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-2 max-h-40 overflow-auto border border-slate-100">
+                  {ghResult.commits.map((c) => (
+                    <a key={c.full_sha} href={c.url} target="_blank" rel="noreferrer"
+                      className="flex items-start gap-2 p-1.5 rounded-lg hover:bg-white transition-all group">
+                      <GitCommit size={11} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] text-slate-700 font-semibold truncate">{c.message}</p>
+                        <p className="text-[9px] text-slate-400">
+                          <span className="font-mono">{c.sha}</span> · {c.author}
+                        </p>
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Check result */}
@@ -420,30 +403,6 @@ export default function UpdatesPage() {
             </motion.div>
           )}
         </AnimatePresence>
-      </motion.div>
-
-      {/* How it works */}
-      <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-        className="glass rounded-3xl p-6 mb-5">
-        <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-5">¿Cómo funciona?</h2>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          {STEPS.map(({ icon: Icon, label, sub }, i) => (
-            <div key={i} className="flex items-center gap-3 flex-1">
-              <div className="flex flex-col items-center gap-2 flex-1">
-                <div className="w-11 h-11 rounded-2xl bg-indigo-50 flex items-center justify-center flex-shrink-0">
-                  <Icon size={20} className="text-indigo-500" strokeWidth={1.7} />
-                </div>
-                <div className="text-center">
-                  <p className="text-[11px] font-black text-slate-700 leading-tight">{label}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{sub}</p>
-                </div>
-              </div>
-              {i < STEPS.length - 1 && (
-                <ArrowRight size={16} className="text-slate-300 flex-shrink-0 hidden sm:block mt-[-20px]" />
-              )}
-            </div>
-          ))}
-        </div>
       </motion.div>
 
       {/* Upload form */}

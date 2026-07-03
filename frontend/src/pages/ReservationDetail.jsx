@@ -9,6 +9,7 @@ import ReservationForm from "@/components/ReservationForm";
 import { generateReservationPDF } from "@/lib/generatePDF";
 import LocationsSection from "@/components/LocationsSection";
 import TeamSection from "@/components/TeamSection";
+import { celebrateFullPayment, celebratePayment } from "@/lib/celebrations";
 
 const STATUS_COLORS = {
   Pendiente: "bg-amber-100/80 text-amber-700 border-amber-200/60",
@@ -71,6 +72,7 @@ export default function ReservationDetail() {
   const handleStatusChange = async (newStatus) => {
     try {
       const payload = { status: newStatus };
+      const wasCompleted = reservation.status === "Completado";
       // Al marcar Completado → saldo = 0 (anticipo = total)
       if (newStatus === "Completado" && reservation.total_amount) {
         payload.advance_paid = reservation.total_amount;
@@ -78,6 +80,12 @@ export default function ReservationDetail() {
       const updated = await updateReservation(id, payload);
       setReservation(updated);
       toast({ title: `${tr.statuses[newStatus] || newStatus}` });
+      // 🎉 Celebrar pago completo
+      if (newStatus === "Completado" && !wasCompleted) {
+        celebrateFullPayment();
+      } else if (newStatus === "Confirmado" && reservation.status === "Pendiente") {
+        celebratePayment();
+      }
     }
     catch { toast({ title: "Error", variant: "destructive" }); }
   };

@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/context/SettingsContext";
 import { getEventTypeName } from "@/lib/eventConfig";
 import { FORM_DESIGN_CONFIGS } from "@/lib/formDesigns";
+import { celebrateReservation, celebratePayment, celebrateFullPayment } from "@/lib/celebrations";
 
 const EVENT_TYPES = ["Boda","Quinceañera","Fiesta Social","Evento Corporativo","Conferencia","Otro"];
 
@@ -73,8 +74,22 @@ export default function ReservationForm({ reservation, onClose, onSaved }) {
       advance_paid: parseFloat(form.advance_paid) || 0,
     };
     try {
-      if (isEdit) { await updateReservation(reservation.id, payload); toast({ title:"Reserva actualizada" }); }
-      else        { await createReservation(payload);                  toast({ title:"Reserva creada" }); }
+      if (isEdit) {
+        await updateReservation(reservation.id, payload);
+        toast({ title:"Reserva actualizada" });
+        // Celebrar si aumentó el pago (nuevo anticipo > anticipo previo)
+        const prevAdvance = parseFloat(reservation.advance_paid || 0);
+        const newAdvance = payload.advance_paid || 0;
+        if (newAdvance > prevAdvance) {
+          const total = payload.total_amount || 0;
+          if (newAdvance >= total) celebrateFullPayment();
+          else celebratePayment();
+        }
+      } else {
+        await createReservation(payload);
+        toast({ title:"🎉 ¡Reserva creada!" });
+        celebrateReservation();
+      }
       onSaved();
     } catch (err) {
       toast({ title:"Error al guardar", description:err.response?.data?.detail||"Error", variant:"destructive" });
