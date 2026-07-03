@@ -2568,12 +2568,54 @@ def _verify_app_password(password: str, stored: str) -> bool:
 
 @api_router.get("/security/status")
 async def get_security_status():
-    doc = await db.app_settings.find_one({}, {"_id": 0, "app_password_hash": 1, "app_password_hint": 1, "page_protection_enabled": 1}) or {}
+    doc = await db.app_settings.find_one({}, {"_id": 0, "app_password_hash": 1, "app_password_hint": 1, "page_protection_enabled": 1, "security_config": 1}) or {}
+    cfg = doc.get("security_config") or {}
     return {
         "password_enabled": bool(doc.get("app_password_hash")),
         "hint": doc.get("app_password_hint") or "",
         "protection_enabled": bool(doc.get("page_protection_enabled")),
+        # Nuevos ajustes de seguridad avanzada
+        "auto_lock_enabled": bool(cfg.get("auto_lock_enabled", False)),
+        "auto_lock_minutes": int(cfg.get("auto_lock_minutes", 5)),
+        "max_attempts": int(cfg.get("max_attempts", 5)),
+        "lockout_seconds": int(cfg.get("lockout_seconds", 60)),
+        "protected_sections": cfg.get("protected_sections", []),
+        "failed_attempts": int(cfg.get("failed_attempts", 0)),
+        "locked_until": cfg.get("locked_until", ""),
     }
+
+
+@api_router.put("/security/advanced-config")
+async def set_advanced_security_config(payload: dict = Body(...)):
+    """Configuración avanzada: auto-lock por inactividad, límite de intentos, secciones protegidas."""
+    update = {}
+    if "auto_lock_enabled" in payload:
+        update["security_config.auto_lock_enabled"] = bool(payload["auto_lock_enabled"])
+    if "auto_lock_minutes" in payload:
+        m = int(payload["auto_lock_minutes"])
+        if m < 1 or m > 120:
+            raise HTTPException(status_code=400, detail="auto_lock_minutes debe estar entre 1 y 120")
+        update["security_config.auto_lock_minutes"] = m
+    if "max_attempts" in payload:
+        n = int(payload["max_attempts"])
+        if n < 3 or n > 20:
+            raise HTTPException(status_code=400, detail="max_attempts debe estar entre 3 y 20")
+        update["security_config.max_attempts"] = n
+    if "lockout_seconds" in payload:
+        s = int(payload["lockout_seconds"])
+        if s < 10 or s > 3600:
+            raise HTTPException(status_code=400, detail="lockout_seconds debe estar entre 10 y 3600")
+        update["security_config.lockout_seconds"] = s
+    if "protected_sections" in payload:
+        sections = payload["protected_sections"] or []
+        if not isinstance(sections, list):
+            raise HTTPException(status_code=400, detail="protected_sections debe ser una lista")
+        valid = ["/base-de-datos", "/ajustes", "/socios", "/reservaciones", "/apariencia", "/actualizaciones", "/calendario"]
+        sections = [s for s in sections if s in valid]
+        update["security_config.protected_sections"] = sections
+    if update:
+        await db.app_settings.update_one({}, {"$set": update}, upsert=True)
+    return {"success": True, "updated_keys": list(update.keys())}
 
 
 @api_router.post("/security/set-password")
@@ -2596,11 +2638,59 @@ async def set_app_password_endpoint(payload: dict = Body(...)):
 
 @api_router.post("/security/verify")
 async def verify_app_password_endpoint(payload: dict = Body(...)):
-    doc = await db.app_settings.find_one({}, {"app_password_hash": 1}) or {}
+    doc = await db.app_settings.find_one({}, {"app_password_hash": 1, "security_config": 1}) or {}
     if not doc.get("app_password_hash"):
         return {"valid": True}
+
+    cfg = doc.get("security_config") or {}
+    max_attempts = int(cfg.get("max_attempts", 5))
+    lockout_seconds = int(cfg.get("lockout_seconds", 60))
+    failed = int(cfg.get("failed_attempts", 0))
+    locked_until_str = cfg.get("locked_until", "")
+
+    # Verificar si está en bloqueo temporal
+    if locked_until_str:
+        try:
+            locked_until = datetime.fromisoformat(locked_until_str.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            if now < locked_until:
+                remaining = int((locked_until - now).total_seconds())
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Demasiados intentos fallidos. Espera {remaining} segundos.",
+                    headers={"Retry-After": str(remaining)},
+                )
+        except (ValueError, AttributeError):
+            pass
+
     if not _verify_app_password(payload.get("password") or "", doc["app_password_hash"]):
-        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+        # Incrementar contador de fallos
+        new_failed = failed + 1
+        update = {"security_config.failed_attempts": new_failed}
+        if new_failed >= max_attempts:
+            # Bloquear temporalmente
+            locked_until = (datetime.now(timezone.utc) + timedelta(seconds=lockout_seconds)).isoformat()
+            update["security_config.locked_until"] = locked_until
+            update["security_config.failed_attempts"] = 0
+            await db.app_settings.update_one({}, {"$set": update}, upsert=True)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Demasiados intentos. Bloqueado por {lockout_seconds} segundos.",
+            )
+        else:
+            await db.app_settings.update_one({}, {"$set": update}, upsert=True)
+            remaining = max_attempts - new_failed
+            raise HTTPException(
+                status_code=401,
+                detail=f"Contraseña incorrecta. Te quedan {remaining} intento{'s' if remaining != 1 else ''}.",
+            )
+
+    # Éxito → resetear contador
+    await db.app_settings.update_one(
+        {},
+        {"$set": {"security_config.failed_attempts": 0, "security_config.locked_until": ""}},
+        upsert=True,
+    )
     return {"valid": True}
 
 
@@ -2997,20 +3087,62 @@ Temas de apariencia guardados por el usuario (Saved Themes en Apariencia).
    - Reestructuración de UpdatesPage: quitado "¿Cómo funciona?", GitHub movido como
      sub-sección compacta dentro de "Buscar actualización en línea"
    - Instalada dependencia `canvas-confetti@1.9.4`
-   - Creado `frontend/src/lib/celebrations.js` con helpers: fireConfetti, fireEpic,
-     fireStars, triggerSidebarSweep, celebrateReservation, celebratePayment,
-     celebrateFullPayment, celebrateSocio, celebrateUpdate, celebrateTutorial
-   - Confetti disparado en: crear reserva (púrpura), aumentar anticipo (verde stars),
-     pago completo (épico dual), crear socio (azul), aplicar update GitHub (dorado),
-     terminar tutorial
-   - Layout.jsx: escucha `cp:sidebar-sweep` custom event y renderiza un barrido
-     de luz vertical + halo pulsante en el sidebar (colores: purple/emerald/blue/amber)
-   - WelcomeTour rediseñado desde cero: 18 pasos con icono lucide-react animado,
-     gradiente por paso, tips-chips destacados, partículas de fondo, brillo que
-     recorre progress bar, puntos animados en las esquinas del target, card
-     con perspective 3D
-   - CSS extendido con clases: `.tilt-3d`, `.animate-levitate`, `.shine-on-hover`,
-     `.pulse-ring`, `.icon-bounce`, `.gradient-shift`, `.card-in-3d`
+   - Creado `frontend/src/lib/celebrations.js` con helpers
+   - Confetti disparado en: crear reserva, aumentar anticipo, pago completo, crear socio,
+     aplicar update GitHub, terminar tutorial
+   - Layout.jsx: barrido de luz vertical + halo pulsante en sidebar
+   - WelcomeTour rediseñado con 18 pasos, iconos animados, tips-chips, partículas, card 3D
+   - CSS extendido con .tilt-3d, .animate-levitate, .shine-on-hover, .pulse-ring, etc.
+
+7. **"SI AGREGA LAS FUNCIONES DE SEGURIDAD y ademas la animacion de confeti agregarlo
+     al completar el pago al pagar al socio y mejora el señalamiento el tutorial de
+     bienvenida...agregar mas animaciones al menu con todos los apartado que tenga mas
+     movimientos cADA SECION SELECIONA QUE ESTE ANIMADO."**
+
+   - **Backend seguridad avanzada**:
+     * `GET /api/security/status` extendido con: auto_lock_enabled/minutes, max_attempts,
+       lockout_seconds, protected_sections, failed_attempts, locked_until
+     * `PUT /api/security/advanced-config` (nuevo) para actualizar los ajustes
+     * `POST /api/security/verify` mejorado con contador de intentos fallidos y
+       bloqueo temporal (retorna 429 con Retry-After al superar límite)
+
+   - **Frontend seguridad avanzada** (`SecuritySection.jsx`):
+     * Función 1: Auto-bloqueo por inactividad (toggle + selector 1/3/5/10/15/30 min)
+     * Función 2: Límite de intentos fallidos (max_attempts 3-15 + lockout 30s-1h)
+     * Función 3: Contraseña por sección (grid de 7 secciones protegibles con toggle)
+     * Todas escuchan cambios y sincronizan con backend en tiempo real
+
+   - **Nuevo hook `useAdvancedSecurity.js`**:
+     * Timer de inactividad global escuchando mousedown/keydown/scroll/click
+     * Al expirar: dispara evento `cp:app-locked` y limpia sessionStorage
+     * Escucha cambio de ruta y muestra modal si sección está protegida
+     * Cache de secciones desbloqueadas en la sesión actual
+
+   - **Nuevo componente `SectionUnlockModal.jsx`**:
+     * Modal con partículas de fondo, gradiente animado, icono candado con anillos
+     * Input password con eye toggle, shake al fallar, pista si está configurada
+     * Botones "Volver al inicio" + "Desbloquear"
+     * Muestra mensajes específicos del backend (intentos restantes / bloqueo)
+
+   - **TeamSection.jsx**: Confetti al marcar socio como Pagado (celebratePayment)
+
+   - **WelcomeTour mejorado**:
+     * `locateTarget` con retry (hasta 8 intentos) y medición estable (2 mediciones iguales)
+     * Se actualiza con scroll/resize (spotlight sigue al elemento en tiempo real)
+     * Doble pulso animado (púrpura + rosa)
+     * Puntos más grandes en las 4 esquinas (3x3 → 3x3 con glow)
+     * Flecha animada apuntando al target cuando está fuera de vista
+
+   - **Sidebar/menú súper animado** (`Layout.jsx`):
+     * Ítem activo: halo radial con `layoutId` motion (transición fluida al cambiar)
+     * Ícono con anillos pulsantes + rotación sutil
+     * Punto verde pulsante con glow al lado del ícono activo
+     * Label con animación x oscilante en el activo
+     * Flecha aparece al hover en ítems inactivos
+     * Barrido de luz automático (clase .menu-item-active-glow ::after)
+
+   - **CSS animaciones nuevas**: .menu-item-anim, .menu-icon-glow, .menu-shine (barrido),
+     .ripple-effect, .animate-shake, .menu-item-active-glow (glow pulsante)
 
 **Cambios implementados**:
 - Añadidos endpoints backend: `/api/github/*` y `/api/ai-context*` (server.py líneas ~2625-2900)

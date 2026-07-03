@@ -131,14 +131,54 @@ export default function WelcomeTour() {
 
   const locateTarget = useCallback(() => {
     if (!current?.target) { setRect(null); return; }
-    const el = document.querySelector(current.target);
-    if (!el) { setRect(null); return; }
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    setTimeout(() => {
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-      else setRect(null);
-    }, 380);
+
+    const tryLocate = (attempts = 0) => {
+      const el = document.querySelector(current.target);
+      if (!el) {
+        // Reintentar hasta 8 veces con delay creciente
+        if (attempts < 8) {
+          setTimeout(() => tryLocate(attempts + 1), 200 + attempts * 100);
+        } else {
+          setRect(null);
+        }
+        return;
+      }
+
+      // Scroll y esperar
+      el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+
+      // Esperar a que termine el scroll (múltiples mediciones)
+      let stableCount = 0;
+      let lastTop = null;
+      const measure = () => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 4 || r.height < 4) {
+          // Elemento no visible, seguir esperando
+          setTimeout(measure, 100);
+          return;
+        }
+        if (lastTop !== null && Math.abs(r.top - lastTop) < 1) {
+          stableCount++;
+          if (stableCount >= 2) {
+            // Rect estable: mostrarlo
+            setRect({
+              top: Math.max(r.top, 8),
+              left: Math.max(r.left, 8),
+              width: Math.min(r.width, window.innerWidth - 16),
+              height: Math.min(r.height, window.innerHeight - 16),
+            });
+            return;
+          }
+        } else {
+          stableCount = 0;
+        }
+        lastTop = r.top;
+        setTimeout(measure, 80);
+      };
+      setTimeout(measure, 500); // esperar inicio del scroll
+    };
+
+    tryLocate();
   }, [current]);
 
   useEffect(() => {
@@ -149,6 +189,35 @@ export default function WelcomeTour() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, showTour]);
+
+  // Re-localizar target al hacer scroll o resize (spotlight sigue al elemento)
+  useEffect(() => {
+    if (!showTour || !current?.target) return;
+    const el = document.querySelector(current.target);
+    if (!el) return;
+    let raf = null;
+    const update = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect();
+        if (r.width > 4 && r.height > 4) {
+          setRect({
+            top: Math.max(r.top, 8),
+            left: Math.max(r.left, 8),
+            width: Math.min(r.width, window.innerWidth - 16),
+            height: Math.min(r.height, window.innerHeight - 16),
+          });
+        }
+      });
+    };
+    window.addEventListener("scroll", update, { passive: true, capture: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, { capture: true });
+      window.removeEventListener("resize", update);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [showTour, current, step]);
 
   useEffect(() => { if (showTour) setStep(0); }, [showTour]);
 
@@ -175,38 +244,69 @@ export default function WelcomeTour() {
 
         {/* Backdrop / spotlight */}
         {rect ? (
-          <motion.div
-            initial={false}
-            animate={{ top: rect.top - 10, left: rect.left - 10, width: rect.width + 20, height: rect.height + 20 }}
-            transition={{ type: "spring", stiffness: 200, damping: 26 }}
-            className="fixed rounded-2xl pointer-events-none"
-            style={{
-              boxShadow: "0 0 0 9999px rgba(15,23,42,0.75)",
-              border: "3px solid var(--t-from)",
-            }}
-          >
-            {/* Pulso animado alrededor del target */}
+          <>
             <motion.div
-              className="absolute inset-0 rounded-2xl"
-              animate={{
-                boxShadow: [
-                  "0 0 0 0 rgba(139,92,246,0.6)",
-                  "0 0 0 16px rgba(139,92,246,0)",
-                ],
+              initial={false}
+              animate={{ top: rect.top - 10, left: rect.left - 10, width: rect.width + 20, height: rect.height + 20 }}
+              transition={{ type: "spring", stiffness: 200, damping: 26 }}
+              className="fixed rounded-2xl pointer-events-none"
+              style={{
+                boxShadow: "0 0 0 9999px rgba(15,23,42,0.75)",
+                border: "3px solid rgba(167,139,250,0.9)",
               }}
-              transition={{ duration: 1.6, repeat: Infinity }}
-            />
-            {/* Puntos brillantes en las esquinas */}
-            {[[0,0],[100,0],[0,100],[100,100]].map(([x,y], i) => (
+            >
+              {/* Pulso animado alrededor del target */}
               <motion.div
-                key={i}
-                className="absolute w-2.5 h-2.5 rounded-full bg-white"
-                style={{ left: `${x}%`, top: `${y}%`, transform: "translate(-50%,-50%)", boxShadow: "0 0 10px rgba(255,255,255,0.9)" }}
-                animate={{ scale: [1, 1.5, 1], opacity: [0.6, 1, 0.6] }}
-                transition={{ duration: 1.6, repeat: Infinity, delay: i * 0.15 }}
+                className="absolute inset-0 rounded-2xl"
+                animate={{
+                  boxShadow: [
+                    "0 0 0 0 rgba(167,139,250,0.7)",
+                    "0 0 0 20px rgba(167,139,250,0)",
+                  ],
+                }}
+                transition={{ duration: 1.6, repeat: Infinity }}
               />
-            ))}
-          </motion.div>
+              {/* Doble pulso extra */}
+              <motion.div
+                className="absolute inset-0 rounded-2xl"
+                animate={{
+                  boxShadow: [
+                    "0 0 0 0 rgba(236,72,153,0.6)",
+                    "0 0 0 28px rgba(236,72,153,0)",
+                  ],
+                }}
+                transition={{ duration: 1.6, repeat: Infinity, delay: 0.4 }}
+              />
+              {/* Puntos brillantes en las esquinas */}
+              {[[0,0],[100,0],[0,100],[100,100]].map(([x,y], i) => (
+                <motion.div
+                  key={i}
+                  className="absolute w-3 h-3 rounded-full bg-white"
+                  style={{ left: `${x}%`, top: `${y}%`, transform: "translate(-50%,-50%)", boxShadow: "0 0 12px rgba(255,255,255,1)" }}
+                  animate={{ scale: [1, 1.6, 1], opacity: [0.7, 1, 0.7] }}
+                  transition={{ duration: 1.4, repeat: Infinity, delay: i * 0.12 }}
+                />
+              ))}
+            </motion.div>
+            {/* Flecha animada apuntando al target si está lejos del card */}
+            {rect.top < window.innerHeight - 260 && rect.top + rect.height < window.innerHeight - 240 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: [0, -8, 0] }}
+                transition={{ y: { duration: 1.2, repeat: Infinity, ease: "easeInOut" }, opacity: { duration: 0.4 } }}
+                className="fixed pointer-events-none z-[210]"
+                style={{
+                  top: rect.top + rect.height + 12,
+                  left: rect.left + rect.width / 2 - 16,
+                }}
+              >
+                <div className="w-8 h-8 flex items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shadow-2xl"
+                  style={{ boxShadow: "0 8px 32px rgba(139,92,246,0.6)" }}>
+                  <ArrowRight size={16} className="text-white rotate-90" />
+                </div>
+              </motion.div>
+            )}
+          </>
         ) : (
           <div className="fixed inset-0" style={{ background: "radial-gradient(circle at 50% 50%, rgba(15,23,42,0.55) 0%, rgba(15,23,42,0.88) 80%)" }}>
             <Particles />

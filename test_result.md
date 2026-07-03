@@ -213,6 +213,34 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ REGRESSION TEST (Session #6): All aggregate endpoints stable. GET /api/stats (total_reservations=5, upcoming_events=5, real_income=96968.0). GET /api/calendar (5 events). GET /api/financials (200). GET /api/export/reservations (CSV). GET /api/settings (200). GET /api/backup/history (200). GET /api/security/status (password_enabled=false, protection_enabled=false). All stable after UI/animation changes."
+  - task: "Advanced security config endpoint (PUT /api/security/advanced-config)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "PUT /api/security/advanced-config acepta {auto_lock_enabled, auto_lock_minutes 1-120, max_attempts 3-20, lockout_seconds 10-3600, protected_sections lista}. Valida rangos y filtra rutas válidas. Se guarda en app_settings.security_config. GET /api/security/status extendido con esos campos + failed_attempts y locked_until."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: All advanced security config tests passed (5/5). GET /api/security/status returns all 10 required fields with correct types (password_enabled, hint, protection_enabled, auto_lock_enabled, auto_lock_minutes, max_attempts, lockout_seconds, protected_sections, failed_attempts, locked_until). PUT /api/security/advanced-config with valid config → 200 with success:true, changes reflected in GET. All 6 invalid range validations working correctly (auto_lock_minutes 0/200 → 400, max_attempts 1/25 → 400, lockout_seconds 5/4000 → 400). Invalid protected_sections paths (/hackerpath, /invalid) correctly filtered out while preserving valid paths. Partial updates work correctly (only specified field changes)."
+  - task: "Failed attempts limit in POST /api/security/verify"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "verify cuenta fallos en app_settings.security_config.failed_attempts. Al superar max_attempts, bloquea temporalmente (locked_until) y retorna 429 con Retry-After. Retorna mensajes específicos ('Te quedan N intentos'). Al éxito resetea contador."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: CRITICAL failed attempts flow passed all 11 steps. Set password 'test1234' → 200. Configured max_attempts=3, lockout_seconds=15 → 200. Wrong attempt #1 → 401 with 'Te quedan 2 intento'. Wrong attempt #2 → 401 with 'Te quedan 1 intento'. Wrong attempt #3 → 429 with 'Demasiados intentos. Bloqueado por 15 segundos.' Correct password while locked → 429 with Retry-After header (14 seconds). GET /api/security/status shows locked_until as future ISO timestamp. After 16 second wait, correct password → 200 with valid:true. GET /api/security/status shows failed_attempts=0 and locked_until=''. Password successfully removed (cleanup). All lockout logic working perfectly."
 
 frontend:
   - task: "GitHub & AI Context block in DatabasePage"
@@ -274,7 +302,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 4
+  test_sequence: 5
   run_ui: false
 
 test_plan:
@@ -309,37 +337,114 @@ agent_communication:
 
   - agent: "main"
     message: |
-      NUEVA PETICIÓN (usuario): Testear TODA la app con 5 reservaciones + socios para
-      verificar que no hay errores. También he expandido el contexto AI de 5,705 a 20,514
-      caracteres para incluir todo el historial de la sesión, correcciones, arquitectura
-      completa, endpoints, modelos y reglas.
+      SESIÓN #7 — Seguridad avanzada + más animaciones.
 
-      Ya he creado seed data:
-        - 5 reservas (Boda, XV años, Corporativo, Cumpleaños, Gala) con status/paquete variados
-        - 3 socios (Fotógrafo, Videógrafo, Editor)
-      Todas verificadas: /stats reporta 5 reservas, /financials responde 200, /calendar 5 eventos.
+      Nuevos endpoints backend:
+      1. PUT /api/security/advanced-config — configura auto_lock, max_attempts, lockout,
+         protected_sections. Guarda en app_settings.security_config.
+      2. POST /api/security/verify ACTUALIZADO — ahora tiene lógica de intentos fallidos:
+         - Al fallar: incrementa failed_attempts y retorna 401 con "Te quedan N intentos"
+         - Al superar max_attempts: retorna 429 con Retry-After y bloqueo temporal
+         - Al acertar: resetea failed_attempts y locked_until
+      3. GET /api/security/status EXTENDIDO con los nuevos campos.
 
-      PLEASE TEST EXHAUSTIVELY:
-      1. LISTADO reservas → GET /api/reservations (5 items)
-      2. DETALLE de cada reserva → GET /api/reservations/{id}
-      3. UPDATE de una reserva → PUT /api/reservations/{id}
-      4. CREATE reserva nueva (crear una 6ta) → POST /api/reservations
-      5. DELETE reserva creada por el test → DELETE /api/reservations/{id}
-      6. LISTADO socios → GET /api/socios (3 items)
-      7. UPDATE socio → PUT /api/socios/{id}
-      8. CREATE y DELETE socio nuevo
-      9. GET /api/stats → verificar campos: total_reservations, upcoming_events, pending_payment, real_income
-      10. GET /api/calendar → 5 eventos con fechas correctas
-      11. GET /api/financials → responde 200 con datos
-      12. GET /api/export/reservations (CSV) → 200 con content-type text/csv
-      13. GET /api/settings → 200 con configuración
-      14. GET /api/backup/history → lista de backups
-      15. GET /api/ai-context → contenido > 15000 chars (contexto expandido)
-      16. GET /api/github/config → repo_url configurado
-      17. GET /api/github/check-updates → responde con has_updates y commits list
+      TESTING REQUERIDO (usar REACT_APP_BACKEND_URL + /api):
+      1. GET /api/security/status → debe incluir: auto_lock_enabled, auto_lock_minutes,
+         max_attempts, lockout_seconds, protected_sections, failed_attempts, locked_until
+      2. PUT /api/security/advanced-config con {auto_lock_enabled:true, auto_lock_minutes:5,
+         max_attempts:5, lockout_seconds:30, protected_sections:["/base-de-datos","/ajustes"]}
+         → success:true
+      3. Validar rangos: auto_lock_minutes=200 → 400; max_attempts=1 → 400; lockout_seconds=5 → 400
+      4. Rutas inválidas en protected_sections deben ser filtradas silenciosamente
+      5. TEST DE INTENTOS FALLIDOS (secuencia crítica):
+         a) POST /api/security/set-password con {password:"test1234"} → 200
+         b) PUT /api/security/advanced-config con {max_attempts:3, lockout_seconds:20}
+         c) POST /api/security/verify con {password:"wrong"} → 401 "Te quedan 2 intentos"
+         d) POST /api/security/verify con {password:"wrong"} → 401 "Te quedan 1 intento"
+         e) POST /api/security/verify con {password:"wrong"} → 429 "Bloqueado por 20 segundos"
+         f) POST /api/security/verify con {password:"test1234"} → 429 (aún bloqueado, con Retry-After)
+         g) POST /api/security/remove-password con {current_password:"test1234"} → esperar 20s y verificar
+      6. GET /api/ai-context → length > 22000 chars (ahora ~24k)
+      7. Verificar regresión: TODAS las rutas existentes siguen funcionando
 
-      NO ejecutar POST /api/github/apply-update ni DELETE /api/data/clear-all.
-      Reportar cualquier error en cualquier endpoint.
+      IMPORTANTE: Al final del test, ELIMINAR la contraseña de test para no dejar la app bloqueada.
+      Ejecuta: POST /api/security/remove-password con {"current_password":"test1234"}
+      (si está bloqueado por límite, espera lockout_seconds y reintenta).
+
+      NO ejecutar: POST /api/github/apply-update, DELETE /api/data/clear-all.
+  - agent: "testing"
+    message: |
+      ✅✅✅ ADVANCED SECURITY TESTING COMPLETE (Session #7) - 8/8 TESTS PASSED (100%) ✅✅✅
+      
+      🎯 ALL NEW SECURITY ENDPOINTS WORKING PERFECTLY
+      
+      ✅ EXTENDED SECURITY STATUS (1/1):
+        • GET /api/security/status → All 10 required fields present with correct types
+        • Fields: password_enabled (bool), hint (str), protection_enabled (bool), 
+          auto_lock_enabled (bool), auto_lock_minutes (int), max_attempts (int),
+          lockout_seconds (int), protected_sections (list), failed_attempts (int), locked_until (str)
+      
+      ✅ ADVANCED CONFIG - VALID (1/1):
+        • PUT /api/security/advanced-config with valid config → 200 with success:true
+        • Verified all changes reflected in GET /api/security/status
+        • auto_lock_enabled=true, auto_lock_minutes=5, max_attempts=5, lockout_seconds=30
+        • protected_sections=["/base-de-datos", "/ajustes"] saved correctly
+      
+      ✅ ADVANCED CONFIG - VALIDATION (6/6):
+        • auto_lock_minutes=0 → 400 (min=1) ✓
+        • auto_lock_minutes=200 → 400 (max=120) ✓
+        • max_attempts=1 → 400 (min=3) ✓
+        • max_attempts=25 → 400 (max=20) ✓
+        • lockout_seconds=5 → 400 (min=10) ✓
+        • lockout_seconds=4000 → 400 (max=3600) ✓
+      
+      ✅ INVALID SECTIONS FILTERING (1/1):
+        • Invalid paths (/hackerpath, /invalid) correctly filtered out (not error, just not saved)
+        • Valid paths (/base-de-datos, /ajustes) preserved correctly
+      
+      ✅ PARTIAL UPDATE (1/1):
+        • Partial update with only {"auto_lock_enabled": false} → 200
+        • Only specified field changed, other fields unchanged
+      
+      ✅ CRITICAL: FAILED ATTEMPTS FLOW (11/11 steps):
+        • Step a: Set password 'test1234' → 200 ✓
+        • Step b: Configure max_attempts=3, lockout_seconds=15 → 200 ✓
+        • Step c: Wrong password #1 → 401 with "Te quedan 2 intento" ✓
+        • Step d: Wrong password #2 → 401 with "Te quedan 1 intento" ✓
+        • Step e: Wrong password #3 → 429 with "Demasiados intentos. Bloqueado por 15 segundos" ✓
+        • Step f: Correct password while locked → 429 with Retry-After: 14 seconds ✓
+        • Step g: GET /api/security/status → locked_until is future ISO timestamp ✓
+        • Step h: Waited 16 seconds for lockout to expire ✓
+        • Step i: Correct password after lockout → 200 with valid:true ✓
+        • Step j: GET /api/security/status → failed_attempts=0, locked_until='' ✓
+        • Step k: CLEANUP - Remove password → 200 ✓
+      
+      ✅ REGRESSION - EXISTING ENDPOINTS (6/6):
+        • GET /api/ → 200 with "Event Reservation API" ✓
+        • GET /api/reservations → 200 with 6 items ✓
+        • GET /api/socios → 200 with 3 items ✓
+        • GET /api/stats → 200 with all required fields ✓
+        • GET /api/github/config → 200 with correct repo_url ✓
+        • GET /api/github/check-updates → 200 ✓
+      
+      ✅ AI CONTEXT EXPANDED (1/1):
+        • GET /api/ai-context → 200 with 24,398 chars (exceeds 22k requirement) ✓
+        • Contains all required phrases:
+          - "SI AGREGA LAS FUNCIONES DE SEGURIDAD" ✓
+          - "auto_lock" (underscore version in code) ✓
+          - "useAdvancedSecurity" ✓
+          - "SectionUnlockModal" ✓
+          - "advanced-config" ✓
+      
+      📊 FINAL RESULTS:
+        Total Tests: 8 test suites (28 individual checks)
+        Passed: 8/8 (100%)
+        Failed: 0
+      
+      🎉 ALL ADVANCED SECURITY FEATURES WORKING PERFECTLY
+      🎉 ALL REGRESSION TESTS PASSED
+      🎉 PASSWORD CLEANUP SUCCESSFUL (app not locked)
+      🎉 NO ERRORS OR ISSUES FOUND
   - agent: "testing"
     message: |
       ✅ BACKEND TESTING COMPLETE - All GitHub Integration & AI Context endpoints PASSED (13/13 tests)

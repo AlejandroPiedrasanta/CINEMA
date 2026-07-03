@@ -1,10 +1,20 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { Shield, KeyRound, Trash2, Loader2, Eye, EyeOff, MousePointer2, Copy, TextCursor, Lock } from "lucide-react";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Shield, KeyRound, Trash2, Loader2, Eye, EyeOff, MousePointer2, Copy, TextCursor, Lock, Clock, AlertTriangle, LockKeyhole } from "lucide-react";
 import { useSettings } from "@/context/SettingsContext";
 import { useToast } from "@/hooks/use-toast";
 import { Section } from "@/components/appearance/SectionShell";
-import { setAppPassword, removeAppPassword, setPageProtection } from "@/lib/api";
+import { setAppPassword, removeAppPassword, setPageProtection, setAdvancedSecurity, getSecurityStatus } from "@/lib/api";
+
+const PROTECTABLE_SECTIONS = [
+  { key: "/base-de-datos", label: "Base de Datos" },
+  { key: "/ajustes",       label: "Ajustes" },
+  { key: "/socios",        label: "Socios" },
+  { key: "/reservaciones", label: "Reservaciones" },
+  { key: "/apariencia",    label: "Apariencia" },
+  { key: "/actualizaciones", label: "Actualizaciones" },
+  { key: "/calendario",    label: "Calendario" },
+];
 
 export function SecuritySection() {
   const { language, security, refreshSecurity } = useSettings();
@@ -19,6 +29,52 @@ export function SecuritySection() {
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [showRemove, setShowRemove] = useState(false);
+
+  // ── Configuración avanzada ──
+  const [advCfg, setAdvCfg] = useState({
+    auto_lock_enabled: false,
+    auto_lock_minutes: 5,
+    max_attempts: 5,
+    lockout_seconds: 60,
+    protected_sections: [],
+  });
+  const [advSaving, setAdvSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await getSecurityStatus();
+        setAdvCfg({
+          auto_lock_enabled: s.auto_lock_enabled || false,
+          auto_lock_minutes: s.auto_lock_minutes || 5,
+          max_attempts: s.max_attempts || 5,
+          lockout_seconds: s.lockout_seconds || 60,
+          protected_sections: s.protected_sections || [],
+        });
+      } catch {}
+    })();
+  }, []);
+
+  const saveAdvCfg = async (patch = {}) => {
+    const merged = { ...advCfg, ...patch };
+    setAdvCfg(merged);
+    setAdvSaving(true);
+    try {
+      await setAdvancedSecurity(patch);
+      toast({ title: es ? "Configuración guardada ✓" : "Config saved ✓" });
+      window.dispatchEvent(new CustomEvent("cp:security-updated"));
+    } catch {
+      toast({ title: "Error", variant: "destructive" });
+    } finally {
+      setAdvSaving(false);
+    }
+  };
+
+  const toggleSection = (key) => {
+    const has = advCfg.protected_sections.includes(key);
+    const next = has ? advCfg.protected_sections.filter(k => k !== key) : [...advCfg.protected_sections, key];
+    saveAdvCfg({ protected_sections: next });
+  };
 
   const handleProtectionToggle = async () => {
     try {
@@ -183,6 +239,181 @@ export function SecuritySection() {
               )}
             </div>
           )}
+        </div>
+
+        {/* ══════════ NUEVA FUNCIÓN 1: Auto-bloqueo por inactividad ══════════ */}
+        <div className="border-t border-white/40 pt-5">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center flex-shrink-0">
+              <Clock size={16} className="text-orange-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black text-slate-700">
+                {es ? "Auto-bloqueo por inactividad" : "Auto-lock by inactivity"}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {es
+                  ? "Bloquea la app automáticamente después de X minutos sin actividad (requiere contraseña activa)"
+                  : "Locks the app after X minutes of inactivity"}
+              </p>
+            </div>
+            <button type="button"
+              onClick={() => saveAdvCfg({ auto_lock_enabled: !advCfg.auto_lock_enabled })}
+              disabled={!security.passwordEnabled || advSaving}
+              data-testid="auto-lock-toggle"
+              role="switch"
+              aria-checked={advCfg.auto_lock_enabled}
+              className={`relative w-12 h-6 rounded-full transition-all flex-shrink-0 ${advCfg.auto_lock_enabled ? "btn-primary" : "bg-slate-200"} ${!security.passwordEnabled ? "opacity-40 cursor-not-allowed" : ""}`}>
+              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${advCfg.auto_lock_enabled ? "left-[26px]" : "left-0.5"}`} />
+            </button>
+          </div>
+
+          {!security.passwordEnabled && (
+            <div className="flex items-center gap-2 text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-xl p-2 mb-3">
+              <AlertTriangle size={12} className="flex-shrink-0" />
+              <span>{es ? "Activa primero una contraseña de la app" : "Enable app password first"}</span>
+            </div>
+          )}
+
+          <AnimatePresence>
+            {advCfg.auto_lock_enabled && security.passwordEnabled && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                className="pl-12 space-y-2 overflow-hidden">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  {es ? "Bloquear después de" : "Lock after"}
+                </p>
+                <div className="grid grid-cols-6 gap-1.5">
+                  {[1, 3, 5, 10, 15, 30].map(m => (
+                    <motion.button key={m}
+                      whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}
+                      onClick={() => saveAdvCfg({ auto_lock_minutes: m })}
+                      className={`py-2 rounded-xl text-[11px] font-black transition-all ${
+                        advCfg.auto_lock_minutes === m ? "btn-primary text-white shadow-lg" : "bg-white/70 text-slate-500 hover:bg-white"
+                      }`}
+                      data-testid={`auto-lock-${m}min`}>
+                      {m}m
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* ══════════ NUEVA FUNCIÓN 2: Límite de intentos fallidos ══════════ */}
+        <div className="border-t border-white/40 pt-5">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-red-100 to-rose-100 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle size={16} className="text-red-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black text-slate-700">
+                {es ? "Límite de intentos fallidos" : "Failed attempts limit"}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {es
+                  ? "Bloquea el acceso temporalmente tras varios intentos incorrectos"
+                  : "Temporarily blocks access after multiple failed attempts"}
+              </p>
+            </div>
+          </div>
+
+          <div className="pl-12 space-y-3">
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                {es ? "Intentos máximos" : "Max attempts"}
+              </p>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[3, 5, 7, 10, 15].map(n => (
+                  <motion.button key={n}
+                    whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}
+                    onClick={() => saveAdvCfg({ max_attempts: n })}
+                    className={`py-2 rounded-xl text-[11px] font-black transition-all ${
+                      advCfg.max_attempts === n ? "bg-red-500 text-white shadow-lg" : "bg-white/70 text-slate-500 hover:bg-white"
+                    }`}
+                    data-testid={`max-attempts-${n}`}>
+                    {n}
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                {es ? "Bloqueo temporal" : "Lockout duration"}
+              </p>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[
+                  { s: 30, label: "30s" },
+                  { s: 60, label: "1m" },
+                  { s: 300, label: "5m" },
+                  { s: 900, label: "15m" },
+                  { s: 3600, label: "1h" },
+                ].map(({ s, label }) => (
+                  <motion.button key={s}
+                    whileHover={{ scale: 1.05, y: -2 }} whileTap={{ scale: 0.95 }}
+                    onClick={() => saveAdvCfg({ lockout_seconds: s })}
+                    className={`py-2 rounded-xl text-[11px] font-black transition-all ${
+                      advCfg.lockout_seconds === s ? "bg-red-500 text-white shadow-lg" : "bg-white/70 text-slate-500 hover:bg-white"
+                    }`}
+                    data-testid={`lockout-${s}s`}>
+                    {label}
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ══════════ NUEVA FUNCIÓN 3: Bloqueo por sección ══════════ */}
+        <div className="border-t border-white/40 pt-5">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-violet-100 to-purple-100 flex items-center justify-center flex-shrink-0">
+              <LockKeyhole size={16} className="text-purple-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black text-slate-700">
+                {es ? "Contraseña por sección" : "Password per section"}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {es
+                  ? "Pide la contraseña cada vez que abras estas secciones sensibles"
+                  : "Ask password every time these sensitive sections are opened"}
+              </p>
+            </div>
+          </div>
+
+          {!security.passwordEnabled && (
+            <div className="flex items-center gap-2 text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-xl p-2 mb-3">
+              <AlertTriangle size={12} className="flex-shrink-0" />
+              <span>{es ? "Activa primero una contraseña de la app" : "Enable app password first"}</span>
+            </div>
+          )}
+
+          <div className="pl-12 grid grid-cols-2 gap-2">
+            {PROTECTABLE_SECTIONS.map(sec => {
+              const active = advCfg.protected_sections.includes(sec.key);
+              return (
+                <motion.button
+                  key={sec.key}
+                  whileHover={{ scale: security.passwordEnabled ? 1.03 : 1, y: security.passwordEnabled ? -2 : 0 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => security.passwordEnabled && toggleSection(sec.key)}
+                  disabled={!security.passwordEnabled || advSaving}
+                  data-testid={`protect-section-${sec.key.replace(/[^a-z]/g, '')}`}
+                  className={`flex items-center gap-2 py-2 px-3 rounded-xl text-[11px] font-bold transition-all ${
+                    active
+                      ? "bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-lg"
+                      : "bg-white/70 text-slate-600 hover:bg-white"
+                  } ${!security.passwordEnabled ? "opacity-40 cursor-not-allowed" : ""}`}
+                >
+                  {active ? <Lock size={11} /> : <LockKeyhole size={11} />}
+                  <span className="truncate">{sec.label}</span>
+                </motion.button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </Section>

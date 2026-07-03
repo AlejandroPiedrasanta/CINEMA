@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getSocios, getSocio, updateReservation } from "@/lib/api";
+import { celebratePayment } from "@/lib/celebrations";
 import { Users, Plus, X, Camera, Video, CheckCircle, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
@@ -81,12 +82,20 @@ export default function TeamSection({ reservation, onUpdated }) {
   };
 
   const handleTogglePayment = async (socioId) => {
+    let becamePaid = false;
+    let socioName = "";
     const updatedPartners = partners.map(p => {
       if (p.socio_id !== socioId) return p;
-      return { ...p, payment_status: p.payment_status === "Pagado" ? "Pendiente" : "Pagado" };
+      const newStatus = p.payment_status === "Pagado" ? "Pendiente" : "Pagado";
+      if (newStatus === "Pagado") { becamePaid = true; socioName = p.name; }
+      return { ...p, payment_status: newStatus };
     });
     try {
       await updateReservation(reservation.id, { assigned_partners: updatedPartners });
+      if (becamePaid) {
+        toast({ title: `💰 ¡${socioName} pagado!` });
+        celebratePayment();
+      }
       onUpdated?.();
     } catch {
       toast({ title: "Error", variant: "destructive" });

@@ -95,6 +95,7 @@ export const setAppPassword = (password, hint, current_password) => api.post("/s
 export const verifyAppPassword = (password) => api.post("/security/verify", { password }).then(r => r.data);
 export const removeAppPassword = (current_password) => api.post("/security/remove-password", { current_password }).then(r => r.data);
 export const setPageProtection = (enabled) => api.put("/security/protection", { enabled }).then(r => r.data);
+export const setAdvancedSecurity = (data) => api.put("/security/advanced-config", data).then(r => r.data);
 
 // GitHub Integration
 export const getGithubConfig = () => api.get("/github/config").then(r => r.data);

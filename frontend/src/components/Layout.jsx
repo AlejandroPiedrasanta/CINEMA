@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSettings, PRESETS } from "@/context/SettingsContext";
 import WelcomeTour from "@/components/WelcomeTour";
+import SectionUnlockModal from "@/components/SectionUnlockModal";
+import { useAdvancedSecurity } from "@/hooks/useAdvancedSecurity";
 import axios from "axios";
 
 const IS_DESKTOP = (window.__API_BASE_URL__ || process.env.REACT_APP_BACKEND_URL || "").includes("localhost");
@@ -72,6 +74,9 @@ export default function Layout({ children }) {
     blue:    "linear-gradient(180deg, transparent 0%, rgba(59,130,246,0) 30%, rgba(96,165,250,0.85) 50%, rgba(59,130,246,0) 70%, transparent 100%)",
     amber:   "linear-gradient(180deg, transparent 0%, rgba(245,158,11,0) 30%, rgba(251,191,36,0.85) 50%, rgba(245,158,11,0) 70%, transparent 100%)",
   };
+
+  // Advanced security (auto-lock + section lock)
+  const { sectionLock, unlockSection, cancelSectionLock } = useAdvancedSecurity();
 
   // "island" always uses islandMargins for margins; no pill style
   const compact = sidebarCompact;
@@ -203,31 +208,80 @@ export default function Layout({ children }) {
         </div>
 
         <nav className={`flex-1 py-5 space-y-1 transition-all duration-300 ${compact ? "px-2" : "px-3"}`}>
-          {navItems.map(({ path, label, icon: Icon }) => (
+          {navItems.map(({ path, label, icon: Icon }, idx) => (
             <NavLink
               key={path}
               to={path}
               data-testid={`nav-${path.replace("/", "")}`}
               title={compact ? label : undefined}
               className={({ isActive }) =>
-                `flex items-center gap-3 py-2.5 rounded-2xl text-sm font-semibold transition-all duration-300 ${
+                `menu-item-anim group relative flex items-center gap-3 py-2.5 rounded-2xl text-sm font-semibold overflow-hidden transition-all duration-300 ${
                   compact ? "px-0 justify-center" : "px-4"
                 } ${
-                  isActive ? "nav-active" : "text-slate-600 hover:bg-white/50 hover:text-slate-900"
+                  isActive ? "nav-active is-active menu-item-active-glow" : "text-slate-600 hover:bg-white/50 hover:text-slate-900"
                 }`
               }
             >
               {({ isActive }) => (
                 <>
+                  {/* Halo animado en el ítem activo */}
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-highlight"
+                      className="absolute inset-0 rounded-2xl pointer-events-none"
+                      style={{ background: "radial-gradient(circle at 30% 50%, rgba(255,255,255,0.35) 0%, transparent 60%)" }}
+                      transition={{ type: "spring", damping: 22, stiffness: 260 }}
+                    />
+                  )}
+
+                  {/* Icono con animaciones múltiples */}
                   <motion.span
-                    animate={{ scale: isActive ? [1.08, 1.18, 1.08] : 1 }}
-                    transition={isActive ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}
-                    whileHover={{ rotate: [0, -12, 12, 0], scale: 1.25, transition: { duration: 0.45 } }}
-                    className="flex-shrink-0"
+                    className="relative flex-shrink-0 menu-icon-glow"
+                    animate={isActive
+                      ? { scale: [1.08, 1.18, 1.08], rotate: [0, 3, -3, 0] }
+                      : { scale: 1, rotate: 0 }}
+                    transition={isActive
+                      ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
+                      : { duration: 0.2 }}
+                    whileHover={{
+                      rotate: [0, -12, 12, -6, 6, 0],
+                      scale: 1.3,
+                      transition: { duration: 0.6, ease: "easeInOut" }
+                    }}
                   >
-                    <Icon size={compact ? iconPx : iconPxInline} strokeWidth={isActive ? 2.2 : 1.5} />
+                    <Icon size={compact ? iconPx : iconPxInline} strokeWidth={isActive ? 2.4 : 1.6} />
+                    {/* Punto pulsante para el ítem activo */}
+                    {isActive && !compact && (
+                      <motion.span
+                        className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400"
+                        animate={{ scale: [1, 1.5, 1], opacity: [0.6, 1, 0.6] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                        style={{ boxShadow: "0 0 8px rgba(52, 211, 153, 0.8)" }}
+                      />
+                    )}
                   </motion.span>
-                  {!compact && <span className="sidebar-compact-label">{label}</span>}
+
+                  {!compact && (
+                    <motion.span
+                      className="sidebar-compact-label relative z-10"
+                      animate={isActive ? { x: [0, 2, 0] } : { x: 0 }}
+                      transition={isActive ? { duration: 3, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 }}
+                    >
+                      {label}
+                    </motion.span>
+                  )}
+
+                  {/* Flecha que aparece al hover */}
+                  {!compact && !isActive && (
+                    <motion.span
+                      className="ml-auto opacity-0 group-hover:opacity-100"
+                      initial={{ x: -6 }}
+                      whileHover={{ x: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <ArrowRight size={12} className="text-slate-400" />
+                    </motion.span>
+                  )}
                 </>
               )}
             </NavLink>
@@ -281,6 +335,13 @@ export default function Layout({ children }) {
       >
         <div className="pt-16 md:pt-0 min-h-screen">{children}</div>
       </main>
+
+      {/* Modal de desbloqueo por sección */}
+      <SectionUnlockModal
+        sectionLock={sectionLock}
+        onUnlock={unlockSection}
+        onCancel={cancelSectionLock}
+      />
     </div>
   );
 }
