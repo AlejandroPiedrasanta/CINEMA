@@ -2,11 +2,13 @@ import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Upload, Trash2, Download, Star, RefreshCw, Package,
-  Clock, FileArchive, ArrowRight, Monitor, Cloud, CheckCircle2, Database, Globe, Sparkles
+  Clock, FileArchive, ArrowRight, Monitor, Cloud, CheckCircle2, Database, Globe, Sparkles,
+  Github, GitBranch, GitCommit, ArrowDownCircle, AlertTriangle, Loader2, ExternalLink
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useSettings } from "@/context/SettingsContext";
-import { getUpdatesHistory, uploadAppUpdate, deleteUpdate, setLatestUpdate, getUpdateDownloadUrl, checkForUpdates } from "@/lib/api";
+import { getUpdatesHistory, uploadAppUpdate, deleteUpdate, setLatestUpdate, getUpdateDownloadUrl, checkForUpdates,
+  getGithubConfig, checkGithubUpdates, applyGithubUpdate } from "@/lib/api";
 
 function formatBytes(bytes) {
   if (!bytes) return "—";
@@ -56,6 +58,54 @@ export default function UpdatesPage() {
   // Online check
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState(null);
+
+  // ── GitHub Updates ──────────────────────────────────
+  const [ghConfig, setGhConfig] = useState({ repo_url: "", branch: "main" });
+  const [ghChecking, setGhChecking] = useState(false);
+  const [ghApplying, setGhApplying] = useState(false);
+  const [ghResult, setGhResult] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try { setGhConfig(await getGithubConfig()); } catch { /* noop */ }
+    })();
+  }, []);
+
+  const handleCheckGithub = async () => {
+    if (!ghConfig.repo_url) {
+      toast({ title: "No hay repositorio configurado", description: "Ve a Base de Datos → GitHub para conectarlo", variant: "destructive" });
+      return;
+    }
+    setGhChecking(true);
+    setGhResult(null);
+    try {
+      const res = await checkGithubUpdates();
+      setGhResult(res);
+      if (res.has_updates) {
+        toast({ title: `¡${res.commits_ahead} commit(s) nuevo(s)!`, description: `Rama: ${res.branch}` });
+      } else {
+        toast({ title: "Todo al día ✓", description: "No hay cambios en el repositorio" });
+      }
+    } catch (err) {
+      toast({ title: "Error", description: err?.response?.data?.detail || String(err), variant: "destructive" });
+    } finally {
+      setGhChecking(false);
+    }
+  };
+
+  const handleApplyGithub = async () => {
+    if (!window.confirm("¿Aplicar la actualización desde GitHub?\n\nSe sobrescribirán los cambios locales y se reiniciarán los servicios.")) return;
+    setGhApplying(true);
+    try {
+      const res = await applyGithubUpdate(true);
+      toast({ title: "Actualización aplicada ✓", description: `Nuevo commit: ${res.new_sha_short}. Reiniciando servicios…` });
+      setTimeout(() => window.location.reload(), 5000);
+    } catch (err) {
+      toast({ title: "Error al aplicar", description: err?.response?.data?.detail || String(err), variant: "destructive" });
+    } finally {
+      setGhApplying(false);
+    }
+  };
 
   const handleCheckOnline = async (silent = false) => {
     setChecking(true);
@@ -126,6 +176,118 @@ export default function UpdatesPage() {
         <p className="text-sm text-slate-500 font-medium mt-1.5">
           Publica nuevas versiones de tu App de Escritorio
         </p>
+      </motion.div>
+
+      {/* ── GITHUB UPDATES SECTION ── */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}
+        className="rounded-3xl p-6 mb-5 border-2 border-slate-900/10"
+        style={{ background: "linear-gradient(135deg, rgba(30,41,59,0.95) 0%, rgba(15,23,42,0.98) 100%)" }}
+      >
+        <div className="flex items-start gap-4 mb-4">
+          <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center flex-shrink-0">
+            <Github size={22} className="text-white" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-lg font-black text-white" style={{ fontFamily: "Cabinet Grotesk, sans-serif" }}>
+                Actualizaciones desde GitHub
+              </p>
+              {ghConfig.repo_url && (
+                <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center gap-1">
+                  <GitBranch size={10} /> {ghConfig.branch || "main"}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              {ghConfig.repo_url
+                ? "Sincroniza el código con tu repositorio remoto"
+                : "Configura primero la URL en Base de Datos → GitHub"}
+            </p>
+            {ghConfig.repo_url && (
+              <a href={ghConfig.repo_url} target="_blank" rel="noreferrer"
+                className="text-[11px] font-mono text-slate-300 hover:text-white flex items-center gap-1 mt-1.5 group">
+                <span className="truncate max-w-[400px]">{ghConfig.repo_url}</span>
+                <ExternalLink size={10} className="opacity-60 group-hover:opacity-100" />
+              </a>
+            )}
+          </div>
+          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+            onClick={handleCheckGithub}
+            disabled={ghChecking || !ghConfig.repo_url}
+            data-testid="github-check-updates-btn"
+            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-white text-slate-900 text-xs font-bold disabled:opacity-40 flex-shrink-0 hover:bg-slate-100 transition-all"
+          >
+            {ghChecking
+              ? <><Loader2 size={14} className="animate-spin" /> Buscando…</>
+              : <><RefreshCw size={14} /> Buscar actualizaciones</>}
+          </motion.button>
+        </div>
+
+        {/* Resultado del check */}
+        <AnimatePresence mode="wait">
+          {ghResult && !ghResult.has_updates && (
+            <motion.div key="uptodate"
+              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="mt-3 flex items-center gap-3 bg-emerald-500/15 border border-emerald-400/30 rounded-2xl p-4"
+            >
+              <CheckCircle2 size={20} className="text-emerald-400 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-black text-emerald-300">Todo al día ✓</p>
+                <p className="text-[11px] text-emerald-400/80">
+                  Local: <span className="font-mono">{ghResult.local_sha_short || "—"}</span> · Remoto: <span className="font-mono">{ghResult.remote_sha_short}</span>
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {ghResult?.has_updates && (
+            <motion.div key="updates"
+              initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="mt-3 space-y-3"
+            >
+              <div className="flex items-center gap-3 bg-amber-500/15 border border-amber-400/30 rounded-2xl p-4">
+                <AlertTriangle size={20} className="text-amber-400 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-black text-amber-300">
+                    {ghResult.commits_ahead} nuevo{ghResult.commits_ahead !== 1 ? "s" : ""} commit{ghResult.commits_ahead !== 1 ? "s" : ""} disponible{ghResult.commits_ahead !== 1 ? "s" : ""}
+                  </p>
+                  <p className="text-[11px] text-amber-400/80">
+                    Local: <span className="font-mono">{ghResult.local_sha_short}</span> → Remoto: <span className="font-mono">{ghResult.remote_sha_short}</span>
+                  </p>
+                </div>
+                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                  onClick={handleApplyGithub} disabled={ghApplying}
+                  data-testid="github-apply-update-btn"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-400 text-slate-900 text-xs font-black hover:bg-amber-300 transition-all disabled:opacity-60"
+                >
+                  {ghApplying
+                    ? <><Loader2 size={12} className="animate-spin" /> Aplicando…</>
+                    : <><ArrowDownCircle size={12} /> Aplicar actualización</>}
+                </motion.button>
+              </div>
+
+              {/* Lista de commits */}
+              <div className="bg-white/5 backdrop-blur rounded-2xl p-3 max-h-64 overflow-auto">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider px-2 pb-2">Commits pendientes</p>
+                <div className="space-y-1">
+                  {ghResult.commits.map((c) => (
+                    <a key={c.full_sha} href={c.url} target="_blank" rel="noreferrer"
+                      className="flex items-start gap-3 p-2 rounded-xl hover:bg-white/5 transition-all group">
+                      <GitCommit size={14} className="text-slate-500 mt-0.5 flex-shrink-0 group-hover:text-white" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-slate-200 font-semibold truncate">{c.message}</p>
+                        <p className="text-[10px] text-slate-500">
+                          <span className="font-mono text-indigo-300">{c.sha}</span> · {c.author} · {c.date ? new Date(c.date).toLocaleString("es-GT") : ""}
+                        </p>
+                      </div>
+                      <ExternalLink size={10} className="text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {/* Stats */}

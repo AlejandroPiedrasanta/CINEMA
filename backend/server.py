@@ -2622,6 +2622,457 @@ async def set_page_protection_endpoint(payload: dict = Body(...)):
     return {"enabled": enabled}
 
 
+# ═══════════════════════════════════════════════════════════════════
+# GitHub Integration & AI Context (Continuity for next AI)
+# ═══════════════════════════════════════════════════════════════════
+import subprocess
+import re as _re
+
+REPO_ROOT = Path(__file__).parent.parent  # /app
+
+DEFAULT_AI_CONTEXT = """# 🧠 CONTEXTO PARA LA PRÓXIMA IA — Cinema Productions
+
+## 📌 Descripción del Proyecto
+**Cinema Productions** es un sistema completo de gestión de reservas de eventos para empresas de producción audiovisual. Los clientes dan un anticipo por una fecha específica y se gestiona todo el ciclo: reservas, pagos, calendario, socios, notificaciones multi-canal y respaldos.
+
+## 🏗️ Arquitectura
+- **Frontend**: React 19 + TailwindCSS + Framer Motion + Shadcn UI (craco)
+- **Backend**: FastAPI (Python) + Motor (MongoDB async) + APScheduler
+- **DB**: MongoDB (colecciones: reservations, socios, app_settings, themes)
+- **Repo Git**: /app está inicializado como repo git, remoto = GitHub
+
+## 📁 Estructura de archivos clave
+```
+/app/
+├── backend/
+│   ├── server.py             # FastAPI principal (~2700 líneas)
+│   ├── standalone_app.py     # Versión desktop embebida
+│   ├── requirements.txt
+│   ├── .env                  # MONGO_URL, DB_NAME, CORS_ORIGINS
+│   ├── backups/              # Auto-backups JSON
+│   └── uploads/updates/      # .exe/zip de actualizaciones
+├── frontend/
+│   ├── src/
+│   │   ├── App.js            # Router con transiciones dinámicas
+│   │   ├── context/SettingsContext.jsx   # Estado global apariencia
+│   │   ├── pages/            # Dashboard, Reservations, CalendarView, Socios,
+│   │   │                     # DatabasePage, AppearancePage, Settings, UpdatesPage
+│   │   ├── components/       # Layout (sidebar), forms, secciones
+│   │   ├── lib/api.js        # Axios configurado con REACT_APP_BACKEND_URL
+│   │   └── hooks/            # useNotifications, useAutoBackup, use-toast
+│   ├── .env                  # REACT_APP_BACKEND_URL
+│   └── package.json
+└── memory/PRD.md             # PRD original
+```
+
+## 🔧 Variables de Entorno CRÍTICAS
+- `backend/.env`: `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`
+- `frontend/.env`: `REACT_APP_BACKEND_URL` (URL externa a través de Kubernetes ingress)
+- **NUNCA** modificar estas variables ni hardcodear URLs/puertos
+- Backend se sirve por supervisor en `0.0.0.0:8001`
+- Todas las rutas backend deben tener prefijo `/api`
+
+## 🚀 Comandos de servicio
+```bash
+sudo supervisorctl restart backend
+sudo supervisorctl restart frontend
+sudo supervisorctl restart all
+sudo supervisorctl status
+```
+
+## 🎯 Funcionalidades Implementadas
+### Core
+- CRUD Reservas con anticipo/balance/fecha-evento (`/api/reservations`)
+- Calendario mensual con filtros (`/api/calendar`)
+- Dashboard con estadísticas y gráficos (`/api/stats`, `/api/financials`)
+- Gestión de Socios/equipo (`/api/socios`)
+
+### Apariencia (9 secciones en AppearancePage.jsx)
+Paleta de colores, tipografía, animaciones, formas/bordes, fondos, interfaz/espacio, tipos de evento, PDF, logo
+
+### Notificaciones Multi-canal
+- Email vía **Resend** (`/api/reminders/*`)
+- **Gmail OAuth** (`/api/oauth/gmail/*`)
+- **Telegram Bot** (`/api/telegram/*`)
+- **ntfy.sh** (`/api/ntfy/*`)
+- **Web Push VAPID** (`/api/push/*`)
+- WhatsApp link automático
+
+### Base de Datos (`/api/backup/*`, `/api/data/*`)
+- JSON backup/restore
+- Auto-backup con APScheduler
+- CSV/Excel import/export
+- Cambio dinámico de MongoDB URL
+
+### GitHub & Actualizaciones (NUEVO)
+- `/api/github/config` — guardar URL repo + token opcional
+- `/api/github/check-updates` — compara commits con GitHub API
+- `/api/github/apply-update` — ejecuta `git pull` y refleja cambios
+- `/api/ai-context` — GET/POST este mismo contexto (auto-persistente)
+
+### Seguridad
+- Contraseña de app (`/api/security/*`) con bcrypt
+- Protección por página
+
+## 🔑 Integraciones que requieren claves (opcionales)
+Guardadas en `app_settings` MongoDB:
+- `google_client_id`, `google_client_secret` (Gmail OAuth)
+- `resend_api_key` (email)
+- `telegram_bot_token`, `telegram_chat_id`
+- `ntfy_topic`
+- `vapid_public_key`, `vapid_private_key`
+- `github_repo_url`, `github_token` (opcional para repos privados)
+
+## 📚 Modelos MongoDB principales
+### `reservations`
+```json
+{
+  "id": "uuid", "client_name", "client_phone", "event_type",
+  "event_date": "YYYY-MM-DD", "total_amount", "advance_amount",
+  "balance", "package", "status", "notes", "receipts": [...],
+  "created_at", "updated_at"
+}
+```
+
+### `socios`
+```json
+{ "id": "uuid", "name", "role", "phone", "email", "photo_base64" }
+```
+
+### `app_settings` (documento único)
+Contiene TODO: configuración de negocio, apariencia, integraciones, credenciales.
+
+## ⚠️ Reglas críticas para trabajar en este código
+1. **NUNCA** usar `ObjectId` de MongoDB — SIEMPRE UUIDs (`str(uuid.uuid4())`)
+2. **NUNCA** modificar valores en `.env`
+3. **SIEMPRE** prefijar rutas backend con `/api`
+4. Frontend usa `import.meta.env.REACT_APP_BACKEND_URL` o `process.env.REACT_APP_BACKEND_URL`
+5. No hardcodear URLs ni puertos
+6. Al editar archivos existentes: usar `search_replace`, no reescribir
+7. Al agregar deps Python: actualizar `requirements.txt` y reinstalar
+8. Al agregar deps JS: usar `yarn add` (nunca npm)
+9. Hot reload activo — solo reiniciar si se cambia `.env` o se instalan deps
+
+## 🧪 Testing
+- Backend tests en `/app/backend/tests/`
+- Testing agent: `deep_testing_backend_v2`
+- Frontend testing: `auto_frontend_testing_agent`
+- `test_result.md` en raíz — protocolo de comunicación entre agentes
+
+## 🗂️ Cómo se conecta el repositorio GitHub
+El usuario configura la URL desde `DatabasePage.jsx` → sección "GitHub & Contexto IA".
+Se guarda en `app_settings.github_config`. Al pulsar "Buscar actualizaciones" en
+`UpdatesPage.jsx`, el backend compara el SHA del commit local con el remoto vía
+GitHub API pública (`/repos/{owner}/{repo}/commits`). Si hay cambios, ejecuta
+`git -C /app fetch && git -C /app reset --hard origin/main` y reinicia servicios.
+
+---
+**Última actualización de este contexto**: se auto-actualiza al guardar cambios.
+"""
+
+
+def _parse_github_url(url: str):
+    """Extrae owner/repo de una URL de GitHub."""
+    if not url:
+        return None, None
+    m = _re.match(r"^https?://github\.com/([^/]+)/([^/.]+?)(?:\.git)?/?$", url.strip())
+    if not m:
+        return None, None
+    return m.group(1), m.group(2)
+
+
+async def _get_github_config():
+    doc = await db.app_settings.find_one({}, {"github_config": 1}) or {}
+    return doc.get("github_config") or {}
+
+
+@api_router.get("/github/config")
+async def get_github_config():
+    cfg = await _get_github_config()
+    # No devolver el token completo por seguridad
+    return {
+        "repo_url": cfg.get("repo_url", ""),
+        "has_token": bool(cfg.get("token")),
+        "last_commit_sha": cfg.get("last_commit_sha", ""),
+        "last_check_at": cfg.get("last_check_at", ""),
+        "branch": cfg.get("branch", "main"),
+    }
+
+
+@api_router.post("/github/config")
+async def save_github_config(payload: dict = Body(...)):
+    repo_url = (payload.get("repo_url") or "").strip()
+    token = (payload.get("token") or "").strip()
+    branch = (payload.get("branch") or "main").strip()
+
+    owner, repo = _parse_github_url(repo_url)
+    if repo_url and not owner:
+        raise HTTPException(status_code=400, detail="URL de GitHub inválida. Formato esperado: https://github.com/usuario/repo")
+
+    update = {"repo_url": repo_url, "branch": branch}
+    if token:
+        update["token"] = token
+    elif payload.get("clear_token"):
+        update["token"] = ""
+
+    await db.app_settings.update_one(
+        {},
+        {"$set": {f"github_config.{k}": v for k, v in update.items()}},
+        upsert=True
+    )
+
+    # Intentar sincronizar el remoto del repo local
+    if repo_url:
+        try:
+            subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "remote", "set-url", "origin", repo_url],
+                capture_output=True, timeout=10, check=False
+            )
+        except Exception as e:
+            logger.warning(f"No se pudo actualizar remote: {e}")
+
+    return {"success": True, "repo_url": repo_url, "branch": branch}
+
+
+def _get_local_commit_sha():
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception as e:
+        logger.warning(f"Error obteniendo SHA local: {e}")
+    return ""
+
+
+@api_router.get("/github/check-updates")
+async def check_github_updates():
+    cfg = await _get_github_config()
+    repo_url = cfg.get("repo_url", "")
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="No hay repositorio de GitHub configurado")
+
+    owner, repo = _parse_github_url(repo_url)
+    if not owner:
+        raise HTTPException(status_code=400, detail="URL de GitHub inválida")
+
+    branch = cfg.get("branch") or "main"
+    token = cfg.get("token", "")
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    local_sha = _get_local_commit_sha()
+
+    # Obtener commits del remoto
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/commits"
+    async with httpx.AsyncClient(timeout=15) as http:
+        try:
+            r = await http.get(api_url, headers=headers, params={"sha": branch, "per_page": 20})
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Error conectando a GitHub: {e}")
+
+    if r.status_code == 404:
+        raise HTTPException(status_code=404, detail="Repositorio no encontrado (¿es privado y falta token?)")
+    if r.status_code == 401:
+        raise HTTPException(status_code=401, detail="Token de GitHub inválido o insuficiente")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"GitHub API respondió {r.status_code}: {r.text[:200]}")
+
+    commits_data = r.json()
+    if not commits_data:
+        return {"has_updates": False, "commits": [], "local_sha": local_sha, "remote_sha": "", "branch": branch}
+
+    remote_sha = commits_data[0]["sha"]
+
+    # Determinar si hay updates: local_sha debe encontrarse en la lista de commits del remoto
+    # Si local está en la lista, contamos cuántos hay ANTES (más nuevos) que él
+    local_found_at = -1
+    for i, c in enumerate(commits_data):
+        if c["sha"] == local_sha:
+            local_found_at = i
+            break
+
+    if local_found_at == 0:
+        # Local == remote latest → nada nuevo
+        has_updates = False
+        new_commits = []
+    elif local_found_at > 0:
+        # Hay `local_found_at` commits nuevos en el remoto
+        has_updates = True
+        new_commits_data = commits_data[:local_found_at]
+    else:
+        # Local no está en la lista: puede estar adelantado o divergente.
+        # Solo marcamos updates si el remoto tiene un SHA distinto Y no encontramos el local.
+        # Para ser conservadores, si local_sha existe (no vacío) y no aparece en top 20, asumimos divergencia
+        # y marcamos has_updates SOLO si no hay local_sha (primera vez)
+        has_updates = bool(remote_sha) and (not local_sha)
+        new_commits_data = commits_data if has_updates else []
+
+    new_commits = []
+    if has_updates:
+        for c in (new_commits_data if 'new_commits_data' in locals() else commits_data[:5]):
+            commit_info = c.get("commit", {})
+            author = commit_info.get("author", {})
+            new_commits.append({
+                "sha": c["sha"][:7],
+                "full_sha": c["sha"],
+                "message": (commit_info.get("message") or "").split("\n")[0][:200],
+                "author": author.get("name", "desconocido"),
+                "date": author.get("date", ""),
+                "url": c.get("html_url", "")
+            })
+
+    # Guardar último chequeo
+    await db.app_settings.update_one(
+        {},
+        {"$set": {
+            "github_config.last_check_at": datetime.now(timezone.utc).isoformat(),
+            "github_config.last_remote_sha": remote_sha,
+        }},
+        upsert=True
+    )
+
+    return {
+        "has_updates": has_updates,
+        "local_sha": local_sha,
+        "local_sha_short": local_sha[:7] if local_sha else "",
+        "remote_sha": remote_sha,
+        "remote_sha_short": remote_sha[:7],
+        "branch": branch,
+        "commits_ahead": len(new_commits),
+        "commits": new_commits,
+        "repo_url": repo_url,
+    }
+
+
+@api_router.post("/github/apply-update")
+async def apply_github_update(payload: dict = Body(default={})):
+    cfg = await _get_github_config()
+    repo_url = cfg.get("repo_url", "")
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="No hay repositorio configurado")
+
+    branch = cfg.get("branch") or "main"
+    force = bool(payload.get("force", True))  # por defecto reset --hard
+
+    logs = []
+    try:
+        # 1. Fetch
+        fetch = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "fetch", "origin", branch],
+            capture_output=True, text=True, timeout=60
+        )
+        logs.append(f"$ git fetch origin {branch}\n{fetch.stdout}{fetch.stderr}")
+        if fetch.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Error en git fetch: {fetch.stderr}")
+
+        # 2. Reset o pull
+        if force:
+            reset = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "reset", "--hard", f"origin/{branch}"],
+                capture_output=True, text=True, timeout=60
+            )
+            logs.append(f"$ git reset --hard origin/{branch}\n{reset.stdout}{reset.stderr}")
+            if reset.returncode != 0:
+                raise HTTPException(status_code=500, detail=f"Error en git reset: {reset.stderr}")
+        else:
+            pull = subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "pull", "origin", branch],
+                capture_output=True, text=True, timeout=60
+            )
+            logs.append(f"$ git pull origin {branch}\n{pull.stdout}{pull.stderr}")
+            if pull.returncode != 0:
+                raise HTTPException(status_code=500, detail=f"Error en git pull: {pull.stderr}")
+
+        new_sha = _get_local_commit_sha()
+        await db.app_settings.update_one(
+            {},
+            {"$set": {
+                "github_config.last_commit_sha": new_sha,
+                "github_config.last_update_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True
+        )
+
+        # 3. Reiniciar servicios en background (para reflejar cambios)
+        async def _restart_later():
+            await asyncio.sleep(2)
+            try:
+                subprocess.run(["sudo", "supervisorctl", "restart", "frontend"], timeout=30, capture_output=True)
+                subprocess.run(["sudo", "supervisorctl", "restart", "backend"], timeout=30, capture_output=True)
+            except Exception as e:
+                logger.warning(f"Error reiniciando servicios: {e}")
+
+        asyncio.create_task(_restart_later())
+
+        return {
+            "success": True,
+            "new_sha": new_sha,
+            "new_sha_short": new_sha[:7] if new_sha else "",
+            "logs": "\n".join(logs),
+            "message": "Actualización aplicada. Los servicios se reiniciarán en 2 segundos.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error aplicando actualización: {e}")
+
+
+# ─── AI Context (contexto para la próxima IA) ─────────────────
+@api_router.get("/ai-context")
+async def get_ai_context():
+    doc = await db.app_settings.find_one({}, {"ai_context": 1}) or {}
+    ctx = doc.get("ai_context") or {}
+    if not ctx.get("content"):
+        # Inicializar con el contexto por defecto
+        await db.app_settings.update_one(
+            {},
+            {"$set": {"ai_context": {
+                "content": DEFAULT_AI_CONTEXT,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }}},
+            upsert=True
+        )
+        return {"content": DEFAULT_AI_CONTEXT, "updated_at": datetime.now(timezone.utc).isoformat(), "is_default": True}
+    return {
+        "content": ctx.get("content", ""),
+        "updated_at": ctx.get("updated_at", ""),
+        "is_default": False,
+    }
+
+
+@api_router.post("/ai-context")
+async def save_ai_context(payload: dict = Body(...)):
+    content = payload.get("content", "")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=400, detail="content debe ser string")
+    await db.app_settings.update_one(
+        {},
+        {"$set": {"ai_context": {
+            "content": content,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}},
+        upsert=True
+    )
+    return {"success": True, "updated_at": datetime.now(timezone.utc).isoformat()}
+
+
+@api_router.post("/ai-context/reset")
+async def reset_ai_context():
+    await db.app_settings.update_one(
+        {},
+        {"$set": {"ai_context": {
+            "content": DEFAULT_AI_CONTEXT,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }}},
+        upsert=True
+    )
+    return {"success": True, "content": DEFAULT_AI_CONTEXT}
+
+
 app.include_router(api_router)
 
 app.add_middleware(

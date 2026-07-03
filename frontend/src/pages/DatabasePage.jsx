@@ -8,6 +8,7 @@ import {
   Play, Square, RotateCcw, Folder, FileSpreadsheet, Plus,
   Star, Bookmark, ChevronDown, Sparkles, Scissors,
   Network, Server, ToggleLeft, ToggleRight, Package, Globe, MonitorSpeaker,
+  Github, BookOpen, Copy, Brain, Key, Eye, EyeOff,
 } from "lucide-react";
 import { useSettings } from "@/context/SettingsContext";
 import { useToast } from "@/hooks/use-toast";
@@ -15,6 +16,7 @@ import {
   getDbStats, testDbConnection, switchDatabase, resetDatabase,
   getReservations, getBackupHistory, createServerBackup,
   deleteBackupFile, downloadBackupUrl, downloadBackupFileUrl, restoreBackup,
+  getGithubConfig, saveGithubConfig, getAiContext, saveAiContext, resetAiContext,
 } from "@/lib/api";
 import { generateAllReservationsPDF } from "@/lib/generatePDF";
 import { useAutoBackup } from "@/hooks/useAutoBackup";
@@ -133,9 +135,23 @@ export default function DatabasePage() {
   const [dbTesting, setDbTesting]       = useState(false);
   const [dbResetting, setDbResetting]   = useState(false);
   const [showClear, setShowClear]       = useState(false);
-  const [openBlocks, setOpenBlocks] = useState({ backup: true, conn: true, cleanup: false, updates: false, options: false, danger: false });
+  const [openBlocks, setOpenBlocks] = useState({ backup: true, conn: true, github: true, cleanup: false, updates: false, options: false, danger: false });
   const toggleBlock = (k) => setOpenBlocks(p => ({ ...p, [k]: !p[k] }));
   const [clearLoading, setClearLoading] = useState(false);
+
+  // ── GitHub Integration & AI Context ────────────────────────────────
+  const [ghConfig, setGhConfig] = useState({ repo_url: "", branch: "main", has_token: false, last_commit_sha: "", last_check_at: "" });
+  const [ghRepoInput, setGhRepoInput] = useState("");
+  const [ghTokenInput, setGhTokenInput] = useState("");
+  const [ghBranchInput, setGhBranchInput] = useState("main");
+  const [ghShowToken, setGhShowToken] = useState(false);
+  const [ghSaving, setGhSaving] = useState(false);
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const [ctxContent, setCtxContent] = useState("");
+  const [ctxLoading, setCtxLoading] = useState(false);
+  const [ctxSaving, setCtxSaving] = useState(false);
+  const [ctxEditing, setCtxEditing] = useState(false);
+  const [ctxUpdatedAt, setCtxUpdatedAt] = useState("");
 
   // ── Connection mode ────────────────────────────────────────────────────────
   const [connMode, setConnMode] = useState("url"); // "url" | "fields" | "nas"
@@ -219,7 +235,89 @@ export default function DatabasePage() {
 
   useEffect(() => { loadAll(); }, []);
 
-  const loadAll = () => { loadDbStats(); loadBackupHistory(); loadCleanupPreview(); loadDbUpdates(); };
+  const loadAll = () => { loadDbStats(); loadBackupHistory(); loadCleanupPreview(); loadDbUpdates(); loadGithubConfig(); };
+
+  // ── GitHub Config load ──────────────────────────────────
+  const loadGithubConfig = async () => {
+    try {
+      const cfg = await getGithubConfig();
+      setGhConfig(cfg);
+      setGhRepoInput(cfg.repo_url || "");
+      setGhBranchInput(cfg.branch || "main");
+    } catch (err) { console.error("[loadGithubConfig]", err); }
+  };
+
+  const handleSaveGithub = async () => {
+    if (!ghRepoInput.trim()) {
+      toast({ title: "Ingresa la URL del repositorio", variant: "destructive" });
+      return;
+    }
+    setGhSaving(true);
+    try {
+      await saveGithubConfig({
+        repo_url: ghRepoInput.trim(),
+        token: ghTokenInput.trim() || undefined,
+        branch: ghBranchInput.trim() || "main",
+      });
+      toast({ title: "Repositorio guardado", description: "Configuración actualizada correctamente" });
+      setGhTokenInput("");
+      await loadGithubConfig();
+    } catch (err) {
+      toast({ title: "Error al guardar", description: err?.response?.data?.detail || String(err), variant: "destructive" });
+    } finally {
+      setGhSaving(false);
+    }
+  };
+
+  const handleOpenContext = async () => {
+    setCtxOpen(true);
+    setCtxLoading(true);
+    try {
+      const data = await getAiContext();
+      setCtxContent(data.content || "");
+      setCtxUpdatedAt(data.updated_at || "");
+    } catch (err) {
+      toast({ title: "Error al cargar contexto", variant: "destructive" });
+    } finally {
+      setCtxLoading(false);
+    }
+  };
+
+  const handleSaveContext = async () => {
+    setCtxSaving(true);
+    try {
+      await saveAiContext(ctxContent);
+      setCtxEditing(false);
+      toast({ title: "Contexto guardado", description: "La próxima IA tendrá esta información" });
+      const data = await getAiContext();
+      setCtxUpdatedAt(data.updated_at || "");
+    } catch (err) {
+      toast({ title: "Error al guardar", variant: "destructive" });
+    } finally {
+      setCtxSaving(false);
+    }
+  };
+
+  const handleResetContext = async () => {
+    if (!window.confirm("¿Restaurar el contexto por defecto? Se perderán tus ediciones.")) return;
+    try {
+      const data = await resetAiContext();
+      setCtxContent(data.content || "");
+      toast({ title: "Contexto restaurado al valor por defecto" });
+    } catch (err) {
+      toast({ title: "Error al restaurar", variant: "destructive" });
+    }
+  };
+
+  const handleCopyContext = async () => {
+    try {
+      await navigator.clipboard.writeText(ctxContent);
+      toast({ title: "Copiado al portapapeles" });
+    } catch {
+      toast({ title: "No se pudo copiar", variant: "destructive" });
+    }
+  };
+
 
   const loadCleanupPreview = async () => {
     try {
@@ -1267,6 +1365,151 @@ export default function DatabasePage() {
           </div>
         </motion.div>
 
+        {/* ── GITHUB & CONTEXTO IA ── */}
+        <motion.div variants={fadeUp}>
+          <div className={`glass rounded-3xl overflow-hidden transition-all duration-300 ${ghConfig.repo_url ? "ring-2 ring-slate-800/30" : ""}`}
+            style={{ background: ghConfig.repo_url ? "linear-gradient(135deg,rgba(30,41,59,0.05),rgba(15,23,42,0.03))" : undefined }}>
+
+            <div onClick={() => toggleBlock("github")} data-testid="db-block-toggle-github"
+              className="flex items-center justify-between px-5 py-4 border-b border-white/40 cursor-pointer select-none">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${ghConfig.repo_url ? "bg-slate-900" : "bg-slate-100"}`}>
+                  <Github size={16} className={ghConfig.repo_url ? "text-white" : "text-slate-400"} />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-900" style={{ fontFamily: "Cabinet Grotesk, sans-serif" }}>
+                    GitHub & Contexto IA
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    {ghConfig.repo_url ? "Repositorio conectado ✓" : "Conecta tu repositorio para sincronizar"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {ghConfig.repo_url && (
+                  <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">
+                    Activo
+                  </span>
+                )}
+                <BlockChevron open={openBlocks.github} />
+              </div>
+            </div>
+
+            <CollapseBody open={openBlocks.github}>
+              <div className="p-5 space-y-5">
+
+                {/* URL del repositorio */}
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-600 flex items-center gap-1.5">
+                    <Link2 size={12} /> URL del repositorio GitHub
+                  </label>
+                  <input
+                    type="text"
+                    value={ghRepoInput}
+                    onChange={(e) => setGhRepoInput(e.target.value)}
+                    placeholder="https://github.com/usuario/repositorio"
+                    data-testid="github-repo-url-input"
+                    className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 transition-all"
+                  />
+                </div>
+
+                {/* Branch */}
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-600 flex items-center gap-1.5">
+                    <Network size={12} /> Rama
+                  </label>
+                  <input
+                    type="text"
+                    value={ghBranchInput}
+                    onChange={(e) => setGhBranchInput(e.target.value)}
+                    placeholder="main"
+                    data-testid="github-branch-input"
+                    className="w-full px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 transition-all"
+                  />
+                </div>
+
+                {/* Token opcional */}
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black text-slate-600 flex items-center gap-1.5">
+                    <Key size={12} /> Token de acceso (opcional, para repos privados)
+                    {ghConfig.has_token && <span className="ml-1 text-emerald-600">● Token guardado</span>}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={ghShowToken ? "text" : "password"}
+                      value={ghTokenInput}
+                      onChange={(e) => setGhTokenInput(e.target.value)}
+                      placeholder={ghConfig.has_token ? "•••••••••••••• (deja vacío para conservar)" : "ghp_xxxxxxxxxxxxxxxxxxxx"}
+                      data-testid="github-token-input"
+                      className="w-full pr-10 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900/20 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setGhShowToken(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    >
+                      {ghShowToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Estado */}
+                {ghConfig.repo_url && (
+                  <div className="bg-white/60 rounded-2xl p-3 border border-slate-200/60 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500 font-semibold">Último SHA local</span>
+                      <span className="font-mono text-slate-800 font-bold">{ghConfig.last_commit_sha ? ghConfig.last_commit_sha.slice(0, 7) : "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-500 font-semibold">Última verificación</span>
+                      <span className="text-slate-700 font-medium">{ghConfig.last_check_at ? new Date(ghConfig.last_check_at).toLocaleString("es-GT") : "Nunca"}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Botón Guardar */}
+                <motion.button
+                  whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                  onClick={handleSaveGithub} disabled={ghSaving}
+                  data-testid="github-save-config-btn"
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold text-white bg-slate-900 hover:bg-slate-800 transition-all disabled:opacity-60"
+                >
+                  {ghSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  Guardar configuración
+                </motion.button>
+
+                {/* Separador */}
+                <div className="border-t border-slate-200/60 pt-4">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center shrink-0">
+                      <Brain size={16} className="text-indigo-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-black text-slate-900" style={{ fontFamily: "Cabinet Grotesk, sans-serif" }}>
+                        Contexto para la próxima IA
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Documento oculto con toda la lógica, arquitectura, endpoints e integraciones. Cuando otra IA se conecte al repositorio, leerá este contexto para entender todo sin errores.
+                      </p>
+                    </div>
+                  </div>
+
+                  <motion.button
+                    whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                    onClick={handleOpenContext}
+                    data-testid="open-ai-context-btn"
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold text-indigo-700 bg-gradient-to-r from-purple-50 to-indigo-50 hover:from-purple-100 hover:to-indigo-100 border border-indigo-200 transition-all"
+                  >
+                    <BookOpen size={14} />
+                    Ver / Editar contexto IA
+                  </motion.button>
+                </div>
+
+              </div>
+            </CollapseBody>
+          </div>
+        </motion.div>
+
         {/* ── ZONA DE PELIGRO ── */}
         <motion.div variants={fadeUp}>
           <div className="rounded-3xl border-2 border-dashed border-red-200/80 bg-red-50/20 overflow-hidden">
@@ -1319,6 +1562,114 @@ export default function DatabasePage() {
         </motion.div>
 
       </motion.div>
+
+      {/* ── MODAL: Contexto para la IA ── */}
+      <AnimatePresence>
+        {ctxOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => !ctxSaving && setCtxOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-4xl h-[85vh] bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-indigo-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+                    <Brain size={18} className="text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900" style={{ fontFamily: "Cabinet Grotesk, sans-serif" }}>
+                      Contexto para la próxima IA
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      {ctxUpdatedAt ? `Actualizado: ${new Date(ctxUpdatedAt).toLocaleString("es-GT")}` : "Sin cambios guardados"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => !ctxSaving && setCtxOpen(false)}
+                  disabled={ctxSaving}
+                  className="w-8 h-8 rounded-full bg-white/80 hover:bg-white text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors disabled:opacity-50"
+                >
+                  <XCircle size={18} />
+                </button>
+              </div>
+
+              {/* Toolbar */}
+              <div className="flex items-center gap-2 px-6 py-3 border-b border-slate-100 bg-white">
+                <motion.button
+                  whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                  onClick={() => setCtxEditing(v => !v)}
+                  data-testid="ctx-edit-toggle"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all ${
+                    ctxEditing ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  <FileText size={12} /> {ctxEditing ? "Modo edición" : "Modo lectura"}
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                  onClick={handleCopyContext}
+                  data-testid="ctx-copy-btn"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                >
+                  <Copy size={12} /> Copiar todo
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                  onClick={handleResetContext}
+                  data-testid="ctx-reset-btn"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all"
+                >
+                  <RotateCcw size={12} /> Restaurar por defecto
+                </motion.button>
+                <div className="ml-auto flex items-center gap-2">
+                  {ctxEditing && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                      onClick={handleSaveContext} disabled={ctxSaving}
+                      data-testid="ctx-save-btn"
+                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition-all disabled:opacity-60"
+                    >
+                      {ctxSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                      Guardar
+                    </motion.button>
+                  )}
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-hidden bg-slate-50">
+                {ctxLoading ? (
+                  <div className="h-full flex items-center justify-center">
+                    <Loader2 size={24} className="animate-spin text-slate-400" />
+                  </div>
+                ) : ctxEditing ? (
+                  <textarea
+                    value={ctxContent}
+                    onChange={(e) => setCtxContent(e.target.value)}
+                    data-testid="ctx-editor"
+                    className="w-full h-full p-6 bg-white font-mono text-xs text-slate-800 resize-none focus:outline-none border-0"
+                    style={{ fontFamily: "'JetBrains Mono', 'Courier New', monospace" }}
+                  />
+                ) : (
+                  <pre className="w-full h-full overflow-auto p-6 font-mono text-xs text-slate-800 whitespace-pre-wrap break-words"
+                    style={{ fontFamily: "'JetBrains Mono', 'Courier New', monospace" }}
+                    data-testid="ctx-viewer">
+                    {ctxContent}
+                  </pre>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

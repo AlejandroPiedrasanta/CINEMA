@@ -95,3 +95,15 @@ export const setAppPassword = (password, hint, current_password) => api.post("/s
 export const verifyAppPassword = (password) => api.post("/security/verify", { password }).then(r => r.data);
 export const removeAppPassword = (current_password) => api.post("/security/remove-password", { current_password }).then(r => r.data);
 export const setPageProtection = (enabled) => api.put("/security/protection", { enabled }).then(r => r.data);
+
+// GitHub Integration
+export const getGithubConfig = () => api.get("/github/config").then(r => r.data);
+export const saveGithubConfig = (data) => api.post("/github/config", data).then(r => r.data);
+export const checkGithubUpdates = () => api.get("/github/check-updates").then(r => r.data);
+export const applyGithubUpdate = (force = true) => api.post("/github/apply-update", { force }).then(r => r.data);
+
+// AI Context (Contexto para la próxima IA)
+export const getAiContext = () => api.get("/ai-context").then(r => r.data);
+export const saveAiContext = (content) => api.post("/ai-context", { content }).then(r => r.data);
+export const resetAiContext = () => api.post("/ai-context/reset").then(r => r.data);
+
