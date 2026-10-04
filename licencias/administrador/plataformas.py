@@ -1,4 +1,4 @@
-"""Conexión con las plataformas de venta: Lemon Squeezy y Hotmart.
+"""Conexión con las plataformas de venta: Lemon Squeezy, Hotmart y Gumroad.
 
 Sin dependencias externas (solo urllib), para que el Administrador funcione igual en
 Windows, macOS y Linux. Todas las llamadas son bloqueantes: la interfaz las ejecuta en
@@ -16,11 +16,12 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-AGENTE = "RCS-Administrador/3.0"
+AGENTE = "RCS-Administrador/4.0"
 LS_API = "https://api.lemonsqueezy.com/v1/"
 HOTMART_AUTH = "https://api-sec-vlc.hotmart.com/security/oauth/token"
 HOTMART_API = {False: "https://developers.hotmart.com", True: "https://sandbox.hotmart.com"}
 HOTMART_DESDE_MS = 1420070400000          # 01/01/2015: para traer todo el historial de ventas
+GUMROAD_API = "https://api.gumroad.com/v2/"
 
 PLATAFORMAS = {
     "lemonsqueezy": {"nombre": "Lemon Squeezy", "icono": "🍋", "color": "#facc15",
@@ -29,9 +30,13 @@ PLATAFORMAS = {
     "hotmart": {"nombre": "Hotmart", "icono": "🔥", "color": "#f97316",
                 "descripcion": "Ventas y compradores de tu producto.",
                 "ayuda_url": "https://app.hotmart.com"},
+    "gumroad": {"nombre": "Gumroad", "icono": "🛍️", "color": "#ff90e8",
+                "descripcion": "Ventas, compradores y claves de licencia.",
+                "ayuda_url": "https://app.gumroad.com/settings/advanced"},
 }
 
-ESTADOS_LICENCIA = {"active": "Activa", "inactive": "Sin activar", "expired": "Vencida", "disabled": "Bloqueada"}
+ESTADOS_LICENCIA = {"active": "Activa", "inactive": "Sin activar", "expired": "Vencida", "disabled": "Bloqueada",
+                    "refunded": "Reembolsada"}
 ESTADOS_LS = {"paid": "Pagada", "refunded": "Reembolsada", "partial_refund": "Reembolso parcial",
               "pending": "Pendiente", "failed": "Fallida"}
 ESTADOS_HOTMART = {
@@ -401,8 +406,116 @@ def resumen_ventas(ventas: list[dict]) -> dict:
     return {"ventas_validas": len(validas),
             "compradores": len({(v["correo"] or v["cliente"]).lower() for v in validas}),
             "reembolsos": sum(1 for v in ventas if not v["valida"] and v["estado"] in
-                              ("Reembolsada", "Contracargo")),
+                              ("Reembolsada", "Contracargo", "En disputa")),
             "ingresos": ingresos}
+
+
+# ============================================================ Gumroad
+
+class Gumroad:
+    clave = "gumroad"
+
+    def __init__(self, token: str):
+        self.token = token.strip()
+        self._cache: tuple[float, tuple, list] | None = None
+
+    def _req(self, metodo: str, ruta: str, datos: dict | None = None, publico: bool = False):
+        datos = {k: v for k, v in (datos or {}).items() if v not in (None, "")}
+        if not publico:
+            datos["access_token"] = self.token
+        url, cuerpo = GUMROAD_API + ruta, None
+        cabeceras = {"Accept": "application/json"}
+        if not publico:
+            cabeceras["Authorization"] = f"Bearer {self.token}"
+        if metodo == "GET":
+            url += "?" + urllib.parse.urlencode(datos)
+        else:
+            cuerpo = urllib.parse.urlencode(datos).encode()
+            cabeceras["Content-Type"] = "application/x-www-form-urlencoded"
+        try:
+            r = _http(metodo, url, cabeceras, cuerpo) or {}
+        except ErrorApi as e:
+            detalle = _detalle(e.cuerpo)
+            mensajes = {0: str(e),
+                        401: "El access token de Gumroad no es válido. Genera uno nuevo en Settings → Advanced.",
+                        403: "El access token de Gumroad no tiene permiso para esto.",
+                        404: detalle or "No se encontró en Gumroad.",
+                        429: "Demasiadas peticiones a Gumroad. Espera un minuto."}
+            raise ErrorApi(mensajes.get(e.codigo, f"Error de Gumroad ({e.codigo}). {detalle}").strip(),
+                           e.codigo, e.cuerpo) from e
+        if isinstance(r, dict) and r.get("success") is False:
+            raise ErrorApi(r.get("message") or "Gumroad rechazó la petición.", 0, r)
+        return r
+
+    def usuario(self) -> dict:
+        return self._req("GET", "user").get("user") or {}
+
+    def productos(self) -> list[dict]:
+        return self._req("GET", "products").get("products") or []
+
+    def ventas(self, producto_id: str = "", max_edad: float = 60) -> list[dict]:
+        """Todas las ventas (con su clave de licencia, si el producto genera claves)."""
+        clave = (producto_id,)
+        if self._cache and self._cache[1] == clave and time.time() - self._cache[0] < max_edad:
+            return self._cache[2]
+        ventas, pagina = [], None
+        for _ in range(200):
+            r = self._req("GET", "sales", {"product_id": producto_id, "page_key": pagina})
+            ventas += [venta_gumroad(v) for v in r.get("sales") or []]
+            pagina = r.get("next_page_key")
+            if not pagina:
+                break
+        self._cache = (time.time(), clave, ventas)
+        return ventas
+
+    def conectar(self, producto_id: str = "") -> dict:
+        """Prueba el token y reúne lo que se muestra en la ventana de 'Conectado'."""
+        usuario = self.usuario()
+        productos = self.productos()
+        ventas = self.ventas(producto_id, max_edad=0)
+        return {"plataforma": self.clave, "usuario": usuario, "productos": productos,
+                "claves": sum(1 for v in ventas if v.get("clave_licencia")), **resumen_ventas(ventas)}
+
+    # --- licencias
+    def licencia(self, producto_id: str, clave: str) -> dict:
+        """Estado de una clave sin gastar un uso: {'usos', 'compra', 'bloqueada'}."""
+        try:
+            r = self._req("POST", "licenses/verify", {"product_id": producto_id, "license_key": clave,
+                                                      "increment_uses_count": "false"}, publico=True)
+        except ErrorApi as e:
+            if "disabled" in str(e).lower() or "deshabilit" in str(e).lower():
+                return {"usos": None, "compra": {}, "bloqueada": True}
+            raise
+        return {"usos": r.get("uses"), "compra": r.get("purchase") or {}, "bloqueada": False}
+
+    def bloquear(self, producto_id: str, clave: str, bloquear: bool = True):
+        self._req("PUT", "licenses/disable" if bloquear else "licenses/enable",
+                  {"product_id": producto_id, "license_key": clave})
+
+    def liberar_uso(self, producto_id: str, clave: str) -> int | None:
+        """Resta un uso a la clave: el cliente podrá activarla en otra computadora."""
+        return self._req("PUT", "licenses/decrement_uses_count",
+                         {"product_id": producto_id, "license_key": clave}).get("uses")
+
+
+def venta_gumroad(v: dict) -> dict:
+    reembolsada, contracargo = bool(v.get("refunded")), bool(v.get("chargedback") or v.get("chargebacked"))
+    disputa = bool(v.get("disputed")) and not v.get("dispute_won")
+    estado = ("Contracargo" if contracargo else "Reembolsada" if reembolsada else "En disputa" if disputa
+              else "Reembolso parcial" if v.get("partially_refunded") else "Pagada")
+    centavos = v.get("price")
+    return {
+        "plataforma": "gumroad", "id": f"gr-{v.get('id')}", "referencia": f"#{v.get('order_id') or ''}".rstrip("#"),
+        "fecha": v.get("created_at"), "cliente": v.get("full_name") or "",
+        "correo": v.get("email") or v.get("purchase_email") or "",
+        "producto": v.get("product_name") or "", "producto_id": v.get("product_id"),
+        "total": centavos / 100 if isinstance(centavos, (int, float)) else None,
+        "moneda": v.get("currency_symbol") or "",
+        "total_txt": v.get("formatted_total_price") or v.get("formatted_display_price") or "—",
+        "estado": estado, "valida": not (reembolsada or contracargo or disputa),
+        "reembolso": v.get("created_at") if (reembolsada or contracargo) else None,
+        "recibo": "", "prueba": bool(v.get("test")), "clave_licencia": v.get("license_key") or "",
+    }
 
 
 def crear_cliente(plataforma: str, cfg: dict):
@@ -411,4 +524,6 @@ def crear_cliente(plataforma: str, cfg: dict):
         return LemonSqueezy(cfg["api_key"])
     if plataforma == "hotmart" and cfg.get("client_id") and cfg.get("client_secret"):
         return Hotmart(cfg["client_id"], cfg["client_secret"], cfg.get("basic", ""), cfg.get("sandbox", False))
+    if plataforma == "gumroad" and cfg.get("token"):
+        return Gumroad(cfg["token"])
     return None

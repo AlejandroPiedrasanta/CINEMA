@@ -1,0 +1,6 @@
+# Resultados de compilación (no se suben al repositorio)
+administrador/build/
+administrador/dist/
+administrador/.venv/
+instalador/*.exe
+__pycache__/

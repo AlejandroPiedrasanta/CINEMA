@@ -22,15 +22,17 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDateEdit, QD
                                QMainWindow, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSystemTrayIcon,
                                QVBoxLayout, QWidget)
 
-from interfaz import (ANIMACIONES, C, QSS, Chips, ContadorAnimado, DialogoBase, EstadoVacio, GraficoBarras,
-                      NavLateral, OpcionPlataforma, PanelDeslizante, Pila, Spinner, TarjetaKPI, Toast, boton, celda,
-                      color_estado, dato_seleccionado, en_hilo, estilo_pildora, etiqueta, fila, fuente_mono, fundido,
-                      icono_app, insignia_icono, llenar_tabla, pildora, sacudir, tabla, tarjeta)
-from plataformas import (ESTADOS_LICENCIA, PLATAFORMAS, ErrorApi, Hotmart, LemonSqueezy, ahora_iso, crear_cliente,
-                         dinero, resumen_ventas)
+from interfaz import (ANIMACIONES, C, QSS, Aurora, Bienvenida, BloqueCarga, Chips, ContadorAnimado, DialogoBase,
+                      EstadoVacio, GraficoBarras, Interruptor, MarcaExito, NavLateral, OpcionPlataforma,
+                      PanelDeslizante, Pila, Spinner, TarjetaKPI, Toast, boton, celda, color_estado,
+                      dato_seleccionado, elevar_al_pasar, en_hilo, entrada_escalonada, estilo_pildora, etiqueta, fila,
+                      fuente_mono, fundido, icono_app, insignia_icono, latido, llenar_tabla, pildora, sacudir, tabla,
+                      tarjeta)
+from plataformas import (ESTADOS_LICENCIA, PLATAFORMAS, ErrorApi, Gumroad, Hotmart, LemonSqueezy, ahora_iso,
+                         crear_cliente, dinero, resumen_ventas)
 
 APP_TITULO = "Administrador de Licencias"
-VERSION = "3.0"
+VERSION = "4.0"
 CARPETA_CONFIG = Path(os.environ.get("APPDATA") or Path.home() / ".config") / "RCS-Administrador"
 ARCHIVO_CONFIG = CARPETA_CONFIG / "config.json"
 ARCHIVO_CONFIG_V2 = CARPETA_CONFIG / "config_lemonsqueezy.json"
@@ -45,7 +47,7 @@ EVENTOS = {
 
 def config_base() -> dict:
     return {"version": 3, "nombre_app": "Resolve Creator Subtitles", "animaciones": True, "intervalo": 30,
-            "telefonos": {}, "plataformas": {"lemonsqueezy": {}, "hotmart": {}}}
+            "telefonos": {}, "plataformas": {"lemonsqueezy": {}, "hotmart": {}, "gumroad": {}}}
 
 
 def cargar_config() -> dict:
@@ -76,13 +78,17 @@ def guardar_config(cfg: dict) -> None:
     ARCHIVO_CONFIG.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def datos_para_programa(ls: dict) -> str:
+def datos_para_programa(ls: dict, gr: dict | None = None) -> str:
     """Líneas para pegar en la sección CONFIGURACIÓN de licencia_cliente.py."""
     productos = f"({ls['producto_id']},)" if ls.get("producto_id") else "()"
     url = ls.get("url_compra") or ls.get("tienda_url") or ""
-    return (f"TIENDA_ID = {ls.get('tienda_id') or 0}\n"
-            f"PRODUCTOS_ID = {productos}\n"
-            f"URL_COMPRA = \"{url}\"")
+    texto = (f"TIENDA_ID = {ls.get('tienda_id') or 0}\n"
+             f"PRODUCTOS_ID = {productos}\n"
+             f"URL_COMPRA = \"{url}\"")
+    if gr and gr.get("token"):
+        texto += (f"\nGUMROAD_PRODUCTO_ID = \"{gr.get('producto_id') or ''}\"\n"
+                  f"URL_COMPRA_GUMROAD = \"{gr.get('url_compra') or ''}\"")
+    return texto
 
 
 # ============================================================ utilidades
@@ -174,6 +180,9 @@ def cargar_todo(clientes: dict, cfg: dict) -> dict:
                 resultado[clave] = cliente.datos(pc.get("tienda_id"), pc.get("producto_id") or 0)
             elif isinstance(cliente, Hotmart):
                 resultado[clave] = {"ventas": cliente.ventas(pc.get("producto_id") or 0)}
+            elif isinstance(cliente, Gumroad):
+                resultado[clave] = {"ventas": cliente.ventas(pc.get("producto_id") or ""),
+                                    "bloqueadas": sorted(pc.get("bloqueadas") or [])}
         except Exception as e:  # noqa: BLE001
             resultado[clave] = {"error": str(e)}
     return resultado
@@ -182,10 +191,22 @@ def cargar_todo(clientes: dict, cfg: dict) -> dict:
 def construir_modelo(resultados: dict) -> dict:
     ls = resultados.get("lemonsqueezy") or {}
     hm = resultados.get("hotmart") or {}
-    licencias = sorted(ls.get("licencias") or [], key=lambda x: x.get("created_at") or "", reverse=True)
+    gr = resultados.get("gumroad") or {}
+    bloqueadas = set(gr.get("bloqueadas") or [])
+    licencias = [l | {"plataforma": "lemonsqueezy"} for l in ls.get("licencias") or []]
+    for v in gr.get("ventas") or []:         # cada venta de Gumroad con clave es una licencia
+        clave = v.get("clave_licencia")
+        if not clave:
+            continue
+        estado = "disabled" if clave in bloqueadas else ("active" if v["valida"] else "refunded")
+        licencias.append({"id": f"lic-{v['id']}", "plataforma": "gumroad", "key": clave, "status": estado,
+                          "disabled": clave in bloqueadas, "user_name": v["cliente"], "user_email": v["correo"],
+                          "created_at": v["fecha"], "expires_at": None, "test_mode": v["prueba"],
+                          "producto_id": v.get("producto_id"), "venta_id": v["id"]})
+    licencias.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     instancias = sorted(ls.get("instancias") or [], key=lambda x: x.get("created_at") or "", reverse=True)
-    ventas = sorted((ls.get("ventas") or []) + (hm.get("ventas") or []), key=lambda v: v["fecha"] or "",
-                    reverse=True)
+    ventas = sorted((ls.get("ventas") or []) + (hm.get("ventas") or []) + (gr.get("ventas") or []),
+                    key=lambda v: v["fecha"] or "", reverse=True)
     por_licencia: dict[int, list[dict]] = {}
     for i in instancias:
         por_licencia.setdefault(i["license_key_id"], []).append(i)
@@ -210,7 +231,7 @@ def construir_modelo(resultados: dict) -> dict:
         p["ultima"] = max(p["ultima"] or "", v["fecha"] or "") or None
     for lic in licencias:
         p = persona(lic.get("user_name") or "", lic.get("user_email") or "")
-        p["plataformas"].add("lemonsqueezy")
+        p["plataformas"].add(lic["plataforma"])
         p["licencias"].append(lic)
         p["equipos"] += len(por_licencia.get(lic["id"], []))
     for p in personas.values():
@@ -336,13 +357,22 @@ class DialogoConectar(DialogoBase):
         self.client_secret = QLineEdit(placeholderText="Client Secret")
         self.client_secret.setEchoMode(QLineEdit.EchoMode.Password)
         self.basic = QLineEdit(placeholderText="Opcional: se calcula solo (Basic …)")
-        self.sandbox = QCheckBox("Son credenciales de Sandbox (pruebas)")
+        self.sandbox = Interruptor("Son credenciales de Sandbox (pruebas)")
         f2.addRow("Client ID", self.client_id)
         f2.addRow("Client Secret", self._con_mostrar(self.client_secret))
         f2.addRow("Basic", self.basic)
         f2.addRow("", self.sandbox)
+        # Gumroad
+        self.form_gr = QWidget()
+        f3 = QFormLayout(self.form_gr)
+        f3.setContentsMargins(0, 6, 0, 0)
+        f3.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.token_gr = QLineEdit(placeholderText="Pega aquí tu access token de Gumroad")
+        self.token_gr.setEchoMode(QLineEdit.EchoMode.Password)
+        f3.addRow("Access token", self._con_mostrar(self.token_gr))
         lay.addWidget(self.form_ls)
         lay.addWidget(self.form_hm)
+        lay.addWidget(self.form_gr)
 
         self.error = etiqueta("", ajustar=True)
         self.error.setStyleSheet(f"color:{C['error']}")
@@ -356,7 +386,7 @@ class DialogoConectar(DialogoBase):
         self.btn_conectar.setMinimumWidth(130)
         self.btn_conectar.clicked.connect(self.conectar)
         lay.addLayout(fila(atras, None, self.spinner, self.estado, self.btn_conectar))
-        for campo in (self.api_key, self.client_id, self.client_secret):
+        for campo in (self.api_key, self.client_id, self.client_secret, self.token_gr):
             campo.returnPressed.connect(self.conectar)
         return w
 
@@ -377,6 +407,13 @@ class DialogoConectar(DialogoBase):
                 "2. Pulsa <b>+</b> para crear una API key, cópiala y pégala aquí.<br>"
                 "Solo se guarda en esta computadora.")
             self.api_key.setText(self.actual.get("api_key", ""))
+        elif clave == "gumroad":
+            self.pasos.setText(
+                f"1. Entra a {enlace}Gumroad → Settings → Advanced → Applications</a><br>"
+                "2. Crea una aplicación (nombre libre; en <i>Redirect URI</i> pon <b>http://127.0.0.1</b>) y "
+                "pulsa <b>Generate access token</b>.<br>3. Copia el token y pégalo aquí. Solo se guarda en esta "
+                "computadora.")
+            self.token_gr.setText(self.actual.get("token", ""))
         else:
             self.pasos.setText(
                 f"1. Entra a {enlace}Hotmart → Herramientas → Credenciales Hotmart</a><br>"
@@ -388,22 +425,25 @@ class DialogoConectar(DialogoBase):
             self.sandbox.setChecked(bool(self.actual.get("sandbox")))
         self.form_ls.setVisible(clave == "lemonsqueezy")
         self.form_hm.setVisible(clave == "hotmart")
+        self.form_gr.setVisible(clave == "gumroad")
         self.error.clear()
         if animar:
             self.pila.ir_a(1)
         else:
             self.pila.setCurrentIndex(1)
-        (self.api_key if clave == "lemonsqueezy" else self.client_id).setFocus()
+        {"lemonsqueezy": self.api_key, "hotmart": self.client_id, "gumroad": self.token_gr}[clave].setFocus()
 
     def _datos(self) -> dict:
         if self.plataforma == "lemonsqueezy":
             return {"api_key": self.api_key.text().strip()}
+        if self.plataforma == "gumroad":
+            return {"token": self.token_gr.text().strip()}
         return {"client_id": self.client_id.text().strip(), "client_secret": self.client_secret.text().strip(),
                 "basic": self.basic.text().strip(), "sandbox": self.sandbox.isChecked()}
 
     def conectar(self):
         datos = self._datos()
-        faltan = [k for k in ("api_key", "client_id", "client_secret") if k in datos and not datos[k]]
+        faltan = [k for k in ("api_key", "client_id", "client_secret", "token") if k in datos and not datos[k]]
         if faltan:
             self.error.setText("Completa los datos para conectar.")
             sacudir(self)
@@ -441,7 +481,7 @@ class DialogoResumen(DialogoBase):
         self.setWindowTitle(f"Conectado a {p['nombre']}")
         self.setMinimumWidth(660)
 
-        icono = insignia_icono(p["icono"], p["color"], 60)
+        icono = MarcaExito(C["ok"], 60)
         titulo = etiqueta(f"¡Conectado a {p['nombre']}!", "tituloPagina")
         self.subtitulo = etiqueta("", "nota")
         cab = QVBoxLayout()
@@ -460,10 +500,11 @@ class DialogoResumen(DialogoBase):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(28, 24, 28, 22)
         lay.setSpacing(16)
-        lay.addLayout(fila(icono, cab, None, self.modo, espacio=14))
+        lay.addLayout(fila(icono, cab, None, pildora(f"{p['icono']} {p['nombre']}", p["color"]), self.modo,
+                           espacio=14))
         lay.addLayout(self.cuerpo)
         lay.addLayout(fila(None, cancelar, guardar))
-        (self._armar_ls if plataforma == "lemonsqueezy" else self._armar_hotmart)()
+        {"lemonsqueezy": self._armar_ls, "hotmart": self._armar_hotmart, "gumroad": self._armar_gumroad}[plataforma]()
 
     def _fijar_modo(self, texto: str, color: str):
         estilo_pildora(self.modo, texto, color)
@@ -629,7 +670,74 @@ class DialogoResumen(DialogoBase):
 
         en_hilo(self.cliente.ventas, producto, 0, ok=ok, error=lambda e: Toast.mostrar(self, "Hotmart", e, "error"))
 
+    # ---- Gumroad
+    def _armar_gumroad(self):
+        r = self.resumen
+        u = r.get("usuario") or {}
+        self.subtitulo.setText(f"Cuenta de {u.get('name') or '—'}  ·  {u.get('email') or ''}")
+        self._fijar_modo("CONECTADO", C["ok"])
+        self.producto = QComboBox()
+        self.producto.addItem("Todos los productos", "")
+        for p in r.get("productos") or []:
+            self.producto.addItem(f"{p.get('name')}   {p.get('formatted_price') or ''}", p.get("id"))
+        guardado = self.producto.findData(self.datos.get("producto_id"))
+        self.producto.setCurrentIndex(guardado if guardado > 0 else (1 if len(r.get("productos") or []) == 1 else 0))
+        self.producto.currentIndexChanged.connect(self._recalcular_gumroad)
+        self.cuerpo.addLayout(fila(self._dato("Tienda", u.get("url") or "—"),
+                                   self._dato("Producto de tu programa", self.producto)))
+        self.grid = QGridLayout()
+        self.grid.setSpacing(10)
+        self.cuerpo.addLayout(self.grid)
+        self._mostrar_gumroad(r)
+        self.cuerpo.addWidget(etiqueta("<b>Datos para tu programa</b> — pégalos en <i>licencia_cliente.py</i>:"))
+        self.codigo = etiqueta("", "codigo")
+        self.codigo.setFont(fuente_mono(10))
+        self.codigo.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        b_copiar = boton("Copiar")
+        b_copiar.clicked.connect(lambda: (copiar(self.codigo.text()), b_copiar.setText("✓ Copiado")))
+        cod = fila(self.codigo, b_copiar)
+        cod.setStretch(0, 1)
+        self.cuerpo.addLayout(cod)
+        nota = etiqueta("Activa <b>«Generate a unique license key per sale»</b> en tu producto de Gumroad para que "
+                        "cada comprador reciba su clave.", "nota", ajustar=True)
+        nota.setTextFormat(Qt.TextFormat.RichText)
+        self.cuerpo.addWidget(nota)
+        self._codigo_gumroad()
+
+    def _mostrar_gumroad(self, r: dict):
+        self._vaciar_grid()
+        self.grid.addWidget(self._dato("Personas con el programa", self._contador(r["compradores"], C["acento"])), 0, 0)
+        self.grid.addWidget(self._dato("Ventas válidas", self._contador(r["ventas_validas"], C["ok"])), 0, 1)
+        self.grid.addWidget(self._dato("Reembolsos", self._contador(r["reembolsos"], C["error"])), 0, 2)
+        self.grid.addWidget(self._dato("Claves de licencia", self._contador(r.get("claves", 0), C["info"])), 0, 3)
+        ingresos = "   ·   ".join(dinero(v, m) for m, v in sorted(r["ingresos"].items())) or "—"
+        self.grid.addWidget(self._dato("Ingresos totales", ingresos), 1, 0, 1, 4)
+
+    def _seleccion_gumroad(self) -> dict:
+        p = next((p for p in self.resumen.get("productos") or [] if p.get("id") == self.producto.currentData()), {})
+        u = self.resumen.get("usuario") or {}
+        return {"producto_id": p.get("id", ""), "producto_nombre": p.get("name", ""),
+                "url_compra": p.get("short_url", ""), "cuenta": u.get("name", ""), "correo": u.get("email", "")}
+
+    def _codigo_gumroad(self):
+        self.codigo.setText(datos_para_programa({}, self.datos | self._seleccion_gumroad()).split("\n", 3)[3])
+
+    def _recalcular_gumroad(self):
+        self._codigo_gumroad()
+        producto = self.producto.currentData()
+
+        def ok(ventas):
+            if producto == self.producto.currentData():
+                self._mostrar_gumroad(self.resumen | resumen_ventas(ventas) |
+                                      {"claves": sum(1 for v in ventas if v.get("clave_licencia"))})
+
+        en_hilo(self.cliente.ventas, producto, 0, ok=ok, error=lambda e: Toast.mostrar(self, "Gumroad", e, "error"))
+
     def guardar(self):
+        if self.plataforma == "gumroad":
+            self.datos |= self._seleccion_gumroad()
+            self.accept()
+            return
         if self.plataforma == "lemonsqueezy":
             if not self.resumen.get("tiendas"):
                 self.reject()
@@ -846,13 +954,15 @@ class PaginaInicio(Pagina):
         self.pila = Pila()
         self.pila.addWidget(self._heroe())
         self.pila.addWidget(self._panel())
+        self.pila.addWidget(self._cargando())
         self.lay.addWidget(self.pila)
+        self._anim_pendiente = True
 
     def _heroe(self) -> QWidget:
         w = QWidget(objectName="pagina")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 10, 0, 0)
-        heroe = QFrame(objectName="heroe")
+        heroe = Aurora()
         h = QVBoxLayout(heroe)
         h.setContentsMargins(36, 34, 36, 34)
         h.setSpacing(10)
@@ -874,11 +984,36 @@ class PaginaInicio(Pagina):
             b = boton(f"Conectar {p['nombre']}", "primario")
             b.clicked.connect(lambda _=False, k=clave: self.v.conectar(k))
             c.addWidget(b)
+            elevar_al_pasar(caja, p["color"])
             tarjetas.addWidget(caja)
         h.addLayout(tarjetas)
         lay.addWidget(heroe)
         lay.addStretch()
         return w
+
+    def _cargando(self) -> QWidget:
+        """Esqueleto con brillo mientras llegan los primeros datos."""
+        w = QWidget(objectName="pagina")
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(14)
+        kpis = QHBoxLayout()
+        kpis.setSpacing(12)
+        for _ in range(5):
+            kpis.addWidget(BloqueCarga(118, 16))
+        lay.addLayout(kpis)
+        abajo = QHBoxLayout()
+        abajo.setSpacing(14)
+        abajo.addWidget(BloqueCarga(0, 16), 3)
+        abajo.addWidget(BloqueCarga(0, 16), 2)
+        lay.addLayout(abajo, 1)
+        return w
+
+    def animar_entrada(self):
+        """Las tarjetas suben a su sitio una tras otra."""
+        if self.pila.currentIndex() == 1 and self.isVisible():
+            QTimer.singleShot(0, lambda: entrada_escalonada(
+                [self.k_personas, self.k_licencias, self.k_equipos, self.k_ventas, self.k_ingresos]))
 
     def _panel(self) -> QWidget:
         w = QWidget(objectName="pagina")
@@ -919,7 +1054,14 @@ class PaginaInicio(Pagina):
         if not self.v.clientes:
             self.pila.setCurrentIndex(0)
             return
+        if not self.v.resultados:          # conectado, pero aún sin datos: esqueleto con brillo
+            self.pila.setCurrentIndex(2)
+            self._anim_pendiente = True
+            return
         self.pila.setCurrentIndex(1)
+        if self._anim_pendiente:
+            self._anim_pendiente = False
+            self.animar_entrada()
         self.k_personas.valor.fijar(sum(1 for p in m["personas"] if p["tiene"]))
         self.k_licencias.valor.fijar(sum(1 for l in m["licencias"] if l.get("status") == "active"))
         self.k_equipos.valor.fijar(len(m["instancias"]))
@@ -967,7 +1109,7 @@ class PaginaPersonas(Pagina):
         cab.addWidget(self.desglose)
         self.lay.addWidget(tarjeta(fila(self.total, cab, None, espacio=14), margen=16))
         self.chips = Chips([("todas", "Todas"), ("con", "Con el programa"), ("sin", "Sin acceso"),
-                            ("lemonsqueezy", "🍋 Lemon Squeezy"), ("hotmart", "🔥 Hotmart")])
+                            ("lemonsqueezy", "🍋 Lemon Squeezy"), ("hotmart", "🔥 Hotmart"), ("gumroad", "🛍️ Gumroad")])
         self.chips.cambiado.connect(lambda _: self.pintar(self.v.modelo))
         self.b_copiar = boton("Copiar correo")
         self.b_copiar.clicked.connect(lambda: (p := self.sel()) and (copiar(p["correo"]),
@@ -1038,32 +1180,32 @@ class PaginaPersonas(Pagina):
 
 class PaginaLicencias(Pagina):
     titulo = "Licencias"
-    subtitulo = "Claves de Lemon Squeezy: bloquea, edita, reenvía o libera equipos."
+    subtitulo = "Claves de Lemon Squeezy y Gumroad: bloquea, edita, reenvía o libera equipos."
 
     def __init__(self, v):
         super().__init__(v)
-        self.sin_ls = EstadoVacio("🔑", "Las licencias funcionan con Lemon Squeezy",
-                                  "Conecta tu cuenta de Lemon Squeezy para ver y controlar las claves de tu programa.",
-                                  "Conectar Lemon Squeezy")
-        self.sin_ls.boton.clicked.connect(lambda: self.v.conectar("lemonsqueezy"))
+        self.sin_ls = EstadoVacio("🔑", "Las licencias funcionan con Lemon Squeezy o Gumroad",
+                                  "Conecta la plataforma que genera las claves de tu programa para verlas y "
+                                  "controlarlas aquí.", "Conectar plataforma")
+        self.sin_ls.boton.clicked.connect(lambda: self.v.conectar())
         self.contenido = QWidget(objectName="pagina")
         c = QVBoxLayout(self.contenido)
         c.setContentsMargins(0, 0, 0, 0)
         c.setSpacing(12)
         self.chips = Chips([("todas", "Todas"), ("active", "Activas"), ("inactive", "Sin activar"),
-                            ("disabled", "Bloqueadas"), ("expired", "Vencidas")])
+                            ("disabled", "Bloqueadas"), ("expired", "Vencidas"), ("refunded", "Reembolsadas")])
         self.chips.cambiado.connect(lambda _: self.pintar(self.v.modelo))
-        nuevo = boton("＋  Nuevo enlace de compra", "primario",
-                      "Enlace de pago (o de regalo) para un cliente. Al completarlo recibe su clave.")
-        nuevo.clicked.connect(lambda: self.v.nueva_venta())
-        c.addLayout(fila(self.chips, None, nuevo))
+        self.nuevo = boton("＋  Nuevo enlace de compra", "primario",
+                           "Enlace de pago (o de regalo) de Lemon Squeezy. Al completarlo, el cliente recibe su clave.")
+        self.nuevo.clicked.connect(lambda: self.v.nueva_venta())
+        c.addLayout(fila(self.chips, None, self.nuevo))
         cuerpo = QHBoxLayout()
         cuerpo.setSpacing(0)
-        self.t = tabla(["Cliente", "Estado", "Clave", "Equipos", "Comprada", "Vence", "Correo"],
-                       [180, 140, 330, 80, 120, 100], pildoras=(1,))
+        self.t = tabla(["Cliente", "Plataforma", "Estado", "Clave", "Equipos / usos", "Comprada", "Vence", "Correo"],
+                       [170, 140, 130, 330, 110, 110, 90], pildoras=(1, 2))
         self.t.itemSelectionChanged.connect(self._seleccion)
         self.vacio = EstadoVacio("🔑", "Sin licencias todavía",
-                                 "Cuando alguien compre tu programa, Lemon Squeezy creará su clave y aparecerá aquí.",
+                                 "Cuando alguien compre tu programa, su clave aparecerá aquí.",
                                  "Crear enlace de compra")
         self.vacio.boton.clicked.connect(lambda: self.v.nueva_venta())
         izquierda = QVBoxLayout()
@@ -1080,6 +1222,7 @@ class PaginaLicencias(Pagina):
         self.lay.addWidget(self.sin_ls, 1)
         self.lay.addWidget(self.contenido, 1)
         self._lic_panel = None
+        self.lbl_usos: QLabel | None = None
 
     def sel(self) -> dict | None:
         return self.v.modelo["lic_por_id"].get(dato_seleccionado(self.t))
@@ -1102,29 +1245,53 @@ class PaginaLicencias(Pagina):
         cerrar = QPushButton("✕", objectName="enlace")
         cerrar.setCursor(Qt.CursorShape.PointingHandCursor)
         cerrar.clicked.connect(lambda: (self.t.clearSelection(), self.panel.cerrar()))
-        nombre = etiqueta(lic.get("user_name") or "—", "tituloTarjeta", ajustar=True)
+        nombre = etiqueta(lic.get("user_name") or lic.get("user_email") or "—", "tituloTarjeta", ajustar=True)
         nombre.setStyleSheet("font-size:18px;")
         self.panel_lay.addLayout(fila(nombre, None, cerrar))
         self.panel_lay.addWidget(etiqueta(lic.get("user_email") or "", "nota"))
-        color = color_estado(est)
-        self.panel_lay.addLayout(fila(pildora(f"●  {est}" + ("  ·  prueba" if lic.get("test_mode") else ""), color),
-                                      None))
+        p = PLATAFORMAS[lic["plataforma"]]
+        self.panel_lay.addLayout(fila(pildora(f"●  {est}" + ("  ·  prueba" if lic.get("test_mode") else ""),
+                                              color_estado(est)),
+                                      pildora(f"{p['icono']} {p['nombre']}", p["color"]), None))
         clave = etiqueta(lic.get("key", ""), "codigo", ajustar=True)
         clave.setFont(fuente_mono(10.5, True))
         clave.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.panel_lay.addWidget(clave)
-        limite = lic.get("activation_limit")
-        pedido = (self.v.modelo["venta_por_pedido"].get(f"ls-{lic.get('order_id')}") or {}).get("referencia", "—")
+        if lic["plataforma"] == "gumroad":
+            self._panel_gumroad(lic)
+        else:
+            self._panel_ls(lic)
+        fundido(self.panel, 0.4, 1.0, 220)
+
+    def _datos(self, pares):
         datos = QGridLayout()
         datos.setVerticalSpacing(4)
-        for i, (t, valor) in enumerate((("Equipos", f"{lic.get('instances_count', 0)} de {limite or '∞'}"),
-                                        ("Vence", fmt_fecha(lic.get("expires_at"), False)
-                                         if lic.get("expires_at") else "Nunca"),
-                                        ("Comprada", fmt_fecha(lic.get("created_at"), False)),
-                                        ("Pedido", pedido))):
+        etiquetas = []
+        for i, (t, valor) in enumerate(pares):
             datos.addWidget(etiqueta(t.upper(), "kpiTitulo"), (i // 2) * 2, i % 2)
-            datos.addWidget(etiqueta(valor), (i // 2) * 2 + 1, i % 2)
+            e = etiqueta(valor)
+            etiquetas.append(e)
+            datos.addWidget(e, (i // 2) * 2 + 1, i % 2)
         self.panel_lay.addLayout(datos)
+        return etiquetas
+
+    def _botones_envio(self, lic: dict):
+        b_copiar = boton("Copiar clave")
+        b_copiar.clicked.connect(lambda: (copiar(lic["key"]),
+                                          self.v.aviso("Clave copiada", lic.get("user_name", ""), "ok")))
+        wa = boton("WhatsApp", "whatsapp")
+        wa.clicked.connect(lambda: self.v.enviar_clave_whatsapp(lic))
+        correo = boton("Correo")
+        correo.setEnabled(bool(lic.get("user_email")))
+        correo.clicked.connect(lambda: self.v.enviar_clave_correo(lic))
+        self.panel_lay.addLayout(fila(b_copiar, wa, correo))
+
+    def _panel_ls(self, lic: dict):
+        limite = lic.get("activation_limit")
+        pedido = (self.v.modelo["venta_por_pedido"].get(f"ls-{lic.get('order_id')}") or {}).get("referencia", "—")
+        self._datos((("Equipos", f"{lic.get('instances_count', 0)} de {limite or '∞'}"),
+                     ("Vence", fmt_fecha(lic.get("expires_at"), False) if lic.get("expires_at") else "Nunca"),
+                     ("Comprada", fmt_fecha(lic.get("created_at"), False)), ("Pedido", pedido)))
         self.panel_lay.addWidget(QFrame(objectName="separador"))
         self.panel_lay.addWidget(etiqueta("Equipos activados", "tituloTarjeta"))
         equipos = self.v.modelo["por_licencia"].get(lic["id"], [])
@@ -1139,33 +1306,64 @@ class PaginaLicencias(Pagina):
             quitar.clicked.connect(lambda _=False, i=ins: self.v.quitar_equipo(lic, i))
             self.panel_lay.addLayout(fila(txt, None, quitar))
         self.panel_lay.addStretch()
-        b_copiar = boton("Copiar clave")
-        b_copiar.clicked.connect(lambda: (copiar(lic["key"]), self.v.aviso("Clave copiada", lic.get("user_name", ""), "ok")))
-        wa = boton("WhatsApp", "whatsapp")
-        wa.clicked.connect(lambda: self.v.enviar_clave_whatsapp(lic))
-        correo = boton("Correo")
-        correo.setEnabled(bool(lic.get("user_email")))
-        correo.clicked.connect(lambda: self.v.enviar_clave_correo(lic))
+        self._botones_envio(lic)
         editar = boton("✏️  Editar", tip="Equipos permitidos y fecha de vencimiento")
         editar.clicked.connect(lambda: self.v.editar_licencia(lic))
         self.b_bloquear = boton("Desbloquear" if lic.get("disabled") else "Bloquear",
                                 "secundario" if lic.get("disabled") else "peligro")
         self.b_bloquear.clicked.connect(lambda: self.v.alternar_bloqueo(lic))
-        self.panel_lay.addLayout(fila(b_copiar, wa, correo))
         self.panel_lay.addLayout(fila(editar, self.b_bloquear, None))
-        fundido(self.panel, 0.4, 1.0, 220)
+
+    def _panel_gumroad(self, lic: dict):
+        venta = self.v.modelo["venta_por_pedido"].get(lic.get("venta_id")) or {}
+        usos = self.v.usos_gumroad.get(lic["key"])
+        self.lbl_usos = self._datos((("Usos", "Consultando…" if usos is None else f"{usos}"),
+                                     ("Vence", "Nunca"),
+                                     ("Comprada", fmt_fecha(lic.get("created_at"), False)),
+                                     ("Pedido", venta.get("referencia") or "—")))[0]
+        self.panel_lay.addWidget(QFrame(objectName="separador"))
+        self.panel_lay.addWidget(etiqueta("Usos de la clave", "tituloTarjeta"))
+        self.panel_lay.addWidget(etiqueta("Gumroad no registra equipos: cuenta cuántas veces se activó la clave. "
+                                          "«Liberar un uso» permite activarla en otra computadora.", "tenue",
+                                          ajustar=True))
+        self.panel_lay.addStretch()
+        self._botones_envio(lic)
+        self.b_bloquear = boton("Desbloquear" if lic.get("disabled") else "Bloquear",
+                                "secundario" if lic.get("disabled") else "peligro")
+        self.b_bloquear.clicked.connect(lambda: self.v.bloquear_gumroad(lic))
+        liberar = boton("↺  Liberar un uso", tip="Resta un uso para que pueda activarla en otra computadora.")
+        liberar.clicked.connect(lambda: self.v.liberar_uso_gumroad(lic))
+        self.panel_lay.addLayout(fila(self.b_bloquear, liberar, None))
+        id_ = lic["id"]
+        self.v.consultar_gumroad(lic, lambda info: self._usos_listos(id_, info))
+
+    def _usos_listos(self, id_, info: dict):
+        if self._lic_panel != id_ or self.lbl_usos is None:
+            return
+        try:
+            if info.get("error"):
+                self.lbl_usos.setText("No disponible")
+                self.lbl_usos.setToolTip(info["error"])
+            elif info.get("bloqueada"):
+                self.lbl_usos.setText("— (bloqueada)")
+            else:
+                self.lbl_usos.setText(f"{info.get('usos') or 0}")
+            fundido(self.lbl_usos, 0.2, 1.0, 300)
+        except RuntimeError:   # el panel se volvió a construir mientras tanto
+            pass
 
     def pintar(self, m: dict):
-        conectado = "lemonsqueezy" in self.v.clientes
+        conectado = "lemonsqueezy" in self.v.clientes or "gumroad" in self.v.clientes
         self.sin_ls.setVisible(not conectado)
         self.contenido.setVisible(conectado)
+        self.nuevo.setVisible("lemonsqueezy" in self.v.clientes)
+        self.vacio.boton.setVisible("lemonsqueezy" in self.v.clientes)
         if not conectado:
             return
-        cuenta = {k: sum(1 for l in m["licencias"] if l.get("status") == k)
-                  for k in ("active", "inactive", "disabled", "expired")}
+        estados = ("active", "inactive", "disabled", "expired", "refunded")
+        cuenta = {k: sum(1 for l in m["licencias"] if l.get("status") == k) for k in estados}
         self.chips.texto("todas", f"Todas  {len(m['licencias'])}")
-        for k, t in (("active", "Activas"), ("inactive", "Sin activar"), ("disabled", "Bloqueadas"),
-                     ("expired", "Vencidas")):
+        for k, t in zip(estados, ("Activas", "Sin activar", "Bloqueadas", "Vencidas", "Reembolsadas")):
             self.chips.texto(k, f"{t}  {cuenta[k]}")
         filtro = self.chips.actual()
         filas = []
@@ -1176,11 +1374,18 @@ class PaginaLicencias(Pagina):
             if not self.v.coincide(lic.get("user_name"), lic.get("user_email"), lic.get("key"), *nombres):
                 continue
             est = estado_licencia(lic)
+            p = PLATAFORMAS[lic["plataforma"]]
+            if lic["plataforma"] == "gumroad":
+                usos = self.v.usos_gumroad.get(lic["key"])
+                equipos = "—" if usos is None else f"{usos} usos"
+            else:
+                equipos = f"{lic.get('instances_count', 0)} / {lic.get('activation_limit') or '∞'}"
             filas.append([
-                celda(lic.get("user_name"), dato=lic["id"], negrita=True),
+                celda(lic.get("user_name") or lic.get("user_email"), dato=lic["id"], negrita=True),
+                celda(p["nombre"], pildora=p["color"]),
                 celda(est, pildora=color_estado(est)),
                 celda(lic.get("key"), "#c9d1e6", mono=True),
-                celda(f"{lic.get('instances_count', 0)} / {lic.get('activation_limit') or '∞'}"),
+                celda(equipos),
                 celda(fmt_fecha(lic.get("created_at"), False)),
                 celda(fmt_fecha(lic.get("expires_at"), False) if lic.get("expires_at") else "Nunca",
                       C["aviso"] if est == "Vencida" else None),
@@ -1262,12 +1467,12 @@ class PaginaEquipos(Pagina):
 
 class PaginaVentas(Pagina):
     titulo = "Ventas"
-    subtitulo = "Todas tus ventas de Lemon Squeezy y Hotmart."
+    subtitulo = "Todas tus ventas de Lemon Squeezy, Hotmart y Gumroad."
 
     def __init__(self, v):
         super().__init__(v)
         self.chips = Chips([("todas", "Todas"), ("lemonsqueezy", "🍋 Lemon Squeezy"), ("hotmart", "🔥 Hotmart"),
-                            ("reembolsos", "Reembolsos")])
+                            ("gumroad", "🛍️ Gumroad"), ("reembolsos", "Reembolsos")])
         self.chips.cambiado.connect(lambda _: self.pintar(self.v.modelo))
         self.b_recibo = boton("Abrir recibo")
         self.b_recibo.clicked.connect(lambda: (s := self.sel()) and abrir_url(s["recibo"]))
@@ -1276,10 +1481,12 @@ class PaginaVentas(Pagina):
                                                                      self.v.aviso("Correo copiado", s["correo"], "ok")))
         self.b_dar = boton("🎁  Dar licencia", tip="Crea una licencia gratis en Lemon Squeezy para este comprador.")
         self.b_dar.clicked.connect(lambda: (s := self.sel()) and self.v.dar_licencia(s["cliente"], s["correo"]))
+        self.b_lic = boton("Ver licencia", tip="Abre la clave de licencia de esta venta.")
+        self.b_lic.clicked.connect(lambda: (s := self.sel()) and self.v.ver_licencia(f"lic-{s['id']}"))
         nuevo = boton("＋  Nuevo enlace de compra", "primario")
         nuevo.clicked.connect(lambda: self.v.nueva_venta())
         self.resumen = etiqueta("", "nota")
-        self.lay.addLayout(fila(self.chips, None, self.b_recibo, self.b_correo, self.b_dar, nuevo))
+        self.lay.addLayout(fila(self.chips, None, self.b_recibo, self.b_correo, self.b_lic, self.b_dar, nuevo))
         self.lay.addWidget(self.resumen)
         self.t = tabla(["Fecha", "Plataforma", "Cliente", "Correo", "Producto", "Total", "Estado", "Referencia"],
                        [140, 150, 170, 210, 220, 110, 150], pildoras=(1, 6))
@@ -1297,6 +1504,7 @@ class PaginaVentas(Pagina):
         self.b_recibo.setEnabled(bool(s and s["recibo"]))
         self.b_correo.setEnabled(bool(s and s["correo"]))
         self.b_dar.setEnabled(bool(s) and "lemonsqueezy" in self.v.clientes)
+        self.b_lic.setEnabled(bool(s and s.get("clave_licencia")))
 
     def pintar(self, m: dict):
         filtro = self.chips.actual()
@@ -1304,7 +1512,8 @@ class PaginaVentas(Pagina):
         for s in m["ventas"]:
             if filtro in PLATAFORMAS and s["plataforma"] != filtro:
                 continue
-            if filtro == "reembolsos" and s["estado"] not in ("Reembolsada", "Contracargo", "Reembolso parcial"):
+            if filtro == "reembolsos" and s["estado"] not in ("Reembolsada", "Contracargo", "Reembolso parcial",
+                                                               "En disputa"):
                 continue
             if not self.v.coincide(s["cliente"], s["correo"], s["producto"], s["referencia"]):
                 continue
@@ -1364,7 +1573,7 @@ class PaginaConexiones(Pagina):
         self.c.setSpacing(14)
         area.setWidget(cont)
         self.lay.addWidget(area)
-        self.tarjetas = QHBoxLayout()
+        self.tarjetas = QGridLayout()
         self.tarjetas.setSpacing(14)
         self.c.addLayout(self.tarjetas)
         self.cajas: dict[str, dict] = {}
@@ -1383,12 +1592,16 @@ class PaginaConexiones(Pagina):
             l.addStretch()
             conectar = boton("Conectar", "primario")
             conectar.clicked.connect(lambda _=False, k=clave: self.v.conectar(k))
-            info = boton("Ver información")
+            info = boton("Información")
             info.clicked.connect(lambda _=False, k=clave: self.v.ver_informacion(k))
             quitar = boton("Desconectar", "peligro")
             quitar.clicked.connect(lambda _=False, k=clave: self.v.desconectar(k))
-            l.addLayout(fila(conectar, info, None, quitar))
-            self.tarjetas.addWidget(caja, 1)
+            l.addWidget(conectar)
+            l.addLayout(fila(info, quitar))
+            elevar_al_pasar(caja, p["color"])
+            columna = len(self.cajas)
+            self.tarjetas.addWidget(caja, 0, columna)
+            self.tarjetas.setColumnStretch(columna, 1)
             self.cajas[clave] = {"estado": estado, "detalle": detalle, "conectar": conectar, "info": info,
                                  "quitar": quitar}
 
@@ -1407,7 +1620,7 @@ class PaginaConexiones(Pagina):
 
         self.nombre = QLineEdit(self.v.cfg["nombre_app"])
         self.nombre.editingFinished.connect(self._guardar_ajustes)
-        self.animar = QCheckBox("Animaciones en la interfaz")
+        self.animar = Interruptor("Animaciones en la interfaz")
         self.animar.setChecked(self.v.cfg.get("animaciones", True))
         self.animar.toggled.connect(self._guardar_ajustes)
         self.intervalo = QComboBox()
@@ -1443,6 +1656,10 @@ class PaginaConexiones(Pagina):
             if clave == "lemonsqueezy" and conectado:
                 det = (f"Cuenta: <b>{pc.get('cuenta') or '—'}</b><br>Tienda: <b>{pc.get('tienda_nombre') or '—'}</b>"
                        f" (ID {pc.get('tienda_id')})<br>Producto: <b>{pc.get('producto_nombre') or 'Todos'}</b>")
+            elif clave == "gumroad" and conectado:
+                bloq = len(pc.get("bloqueadas") or [])
+                det = (f"Cuenta: <b>{pc.get('cuenta') or '—'}</b><br>Producto: <b>{pc.get('producto_nombre') or 'Todos'}"
+                       f"</b><br>Claves bloqueadas: <b>{bloq}</b>")
             elif clave == "hotmart" and conectado:
                 det = (f"Entorno: <b>{pc.get('entorno') or ('Sandbox' if pc.get('sandbox') else 'Producción')}</b>"
                        f"<br>Credencial: <b>{(pc.get('client_id') or '')[:8]}…</b><br>"
@@ -1459,8 +1676,8 @@ class PaginaConexiones(Pagina):
             caja["info"].setVisible(conectado)
             caja["quitar"].setVisible(conectado)
         ls = self.v.cfg["plataformas"].get("lemonsqueezy") or {}
-        self.caja_codigo.setVisible("lemonsqueezy" in self.v.clientes)
-        self.codigo.setText(datos_para_programa(ls))
+        self.caja_codigo.setVisible("lemonsqueezy" in self.v.clientes or "gumroad" in self.v.clientes)
+        self.codigo.setText(datos_para_programa(ls, self.v.cfg["plataformas"].get("gumroad") or {}))
 
 
 # ============================================================ ventana principal
@@ -1484,6 +1701,7 @@ class Ventana(QMainWindow):
         self.desactivaciones: list[dict] = []
         self.no_vistos = 0
         self.cargando = False
+        self.usos_gumroad: dict[str, int | None] = {}
 
         self.timer = QTimer(self, interval=self.cfg.get("intervalo", 30) * 1000, timeout=self.refrescar)
         self._construir()
@@ -1594,9 +1812,12 @@ class Ventana(QMainWindow):
                 b.setStyleSheet(f"QPushButton#plataformaChip {{ color: {C['suave']}; }}")
 
     def ir_a(self, i: int):
+        cambia = i != self.pila.currentIndex()
         self.nav.seleccionar(i)
         self.pila.ir_a(i)
         self._titulos(i)
+        if i == 0 and cambia:
+            self.paginas[0].animar_entrada()
         if i == 5:
             self.no_vistos = 0
             self.nav.insignia(5, 0)
@@ -1744,7 +1965,7 @@ class Ventana(QMainWindow):
     def eventos(self) -> list[dict]:
         m, evs = self.modelo, []
         for s in m["ventas"]:
-            if s["valida"] or s["estado"] in ("Reembolsada", "Contracargo"):
+            if s["valida"] or s["estado"] in ("Reembolsada", "Contracargo", "En disputa"):
                 evs.append({"clave": ("venta", s["id"]), "tipo": "venta", "fecha": s["fecha"],
                             "plataforma": s["plataforma"], "persona": s["cliente"],
                             "detalle": f"{s['producto']} · {s['total_txt']}"})
@@ -1775,6 +1996,7 @@ class Ventana(QMainWindow):
         if self.pila.currentIndex() != 5:
             self.no_vistos += len(nuevos)
             self.nav.insignia(5, self.no_vistos)
+            latido(self.nav.botones[5], C["ok"] if any(e["tipo"] == "venta" for e in nuevos) else C["acento"])
         for e in nuevos[:3]:
             titulo = EVENTOS[e["tipo"]][0]
             texto = f"{e['persona'] or '—'} — {e['detalle']}"
@@ -1785,11 +2007,13 @@ class Ventana(QMainWindow):
         QApplication.alert(self)
 
     # ---------------------------------------------------------------- acciones
-    def accion(self, fn, *args, mensaje=""):
+    def accion(self, fn, *args, mensaje="", despues=None):
         QGuiApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
-        def ok(_):
+        def ok(r):
             QGuiApplication.restoreOverrideCursor()
+            if despues:
+                despues(r)
             if mensaje:
                 self.aviso(mensaje, "", "ok")
             self.refrescar()
@@ -1901,6 +2125,65 @@ class Ventana(QMainWindow):
         if tel := self._pedir_telefono(p["clave"], p["nombre"]):
             abrir_whatsapp(tel, f"Hola {p['nombre'] or ''}, te escribo sobre {self.cfg['nombre_app']}.")
 
+    # ---------------------------------------------------------------- Gumroad
+    def gr(self) -> Gumroad | None:
+        cliente = self.clientes.get("gumroad")
+        if not cliente:
+            self.aviso("Conecta Gumroad", "Ve a Conexiones para conectar tu cuenta de Gumroad.", "info")
+        return cliente
+
+    def _producto_gumroad(self, lic: dict) -> str:
+        return lic.get("producto_id") or (self.cfg["plataformas"].get("gumroad") or {}).get("producto_id") or ""
+
+    def consultar_gumroad(self, lic: dict, listo):
+        """Pide a Gumroad los usos y si la clave está bloqueada (sin gastar un uso)."""
+        if not (gr := self.clientes.get("gumroad")):
+            return
+
+        def ok(info):
+            self.usos_gumroad[lic["key"]] = info.get("usos")
+            pc = self.cfg["plataformas"]["gumroad"]
+            bloq = set(pc.get("bloqueadas") or [])
+            if info.get("bloqueada") != (lic["key"] in bloq):      # alguien la cambió desde la web de Gumroad
+                (bloq.add if info.get("bloqueada") else bloq.discard)(lic["key"])
+                pc["bloqueadas"] = sorted(bloq)
+                guardar_config(self.cfg)
+                self.refrescar()
+            listo(info)
+
+        en_hilo(gr.licencia, self._producto_gumroad(lic), lic["key"], ok=ok,
+                error=lambda e: listo({"error": e}))
+
+    def bloquear_gumroad(self, lic: dict):
+        gr = self.gr()
+        if not gr:
+            return
+        bloquear = not lic.get("disabled")
+        if bloquear and not confirmar(self, "Bloquear licencia",
+                                      f"¿Bloquear la clave de Gumroad de <b>{lic.get('user_name') or lic.get('user_email')}"
+                                      "</b>?<br><br>El programa dejará de funcionar la próxima vez que lo abra.",
+                                      "Sí, bloquear"):
+            return
+
+        def despues(_):
+            pc = self.cfg["plataformas"]["gumroad"]
+            bloq = set(pc.get("bloqueadas") or [])
+            (bloq.add if bloquear else bloq.discard)(lic["key"])
+            pc["bloqueadas"] = sorted(bloq)
+            guardar_config(self.cfg)
+
+        self.accion(gr.bloquear, self._producto_gumroad(lic), lic["key"], bloquear, despues=despues,
+                    mensaje=f"Licencia {'bloqueada' if bloquear else 'desbloqueada'}")
+
+    def liberar_uso_gumroad(self, lic: dict):
+        gr = self.gr()
+        if gr and confirmar(self, "Liberar un uso",
+                            f"¿Restar un uso a la clave de <b>{lic.get('user_name') or lic.get('user_email')}</b>?<br><br>"
+                            "Así podrá activarla en otra computadora (por ejemplo, si formateó o cambió de PC).",
+                            "Sí, liberar"):
+            self.accion(gr.liberar_uso, self._producto_gumroad(lic), lic["key"], mensaje="Uso liberado",
+                        despues=lambda usos: self.usos_gumroad.__setitem__(lic["key"], usos))
+
     def closeEvent(self, e):
         self.tray.hide()
         super().closeEvent(e)
@@ -1938,8 +2221,12 @@ def main():
     fuente.setPointSizeF(10)
     app.setFont(fuente)
     app.setQuitOnLastWindowClosed(True)
+    ANIMACIONES["activas"] = cargar_config().get("animaciones", True)
+    bienvenida = Bienvenida(APP_TITULO, f"Lemon Squeezy · Hotmart · Gumroad   —   v{VERSION}")
+    bienvenida.mostrar()
+    bienvenida.avanzar(0.45)
     v = Ventana()
-    v.show()
+    bienvenida.terminar(v)
     sys.exit(app.exec())
 
 

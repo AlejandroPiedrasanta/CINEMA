@@ -1,11 +1,14 @@
 """Tema visual y componentes animados del Administrador de Licencias (PySide6)."""
 from __future__ import annotations
 
-from PySide6.QtCore import (QEasingCurve, QObject, QParallelAnimationGroup, QPoint, QPropertyAnimation, QRectF,
-                            QRunnable, QSequentialAnimationGroup, Qt, QThreadPool, QTimer, QVariantAnimation,
-                            Signal)
-from PySide6.QtGui import QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QDialog, QFrame,
+import math
+
+from PySide6.QtCore import (QEasingCurve, QEvent, QEventLoop, QObject, QParallelAnimationGroup, QPoint, QPointF,
+                            QPropertyAnimation, QRectF, QRunnable, QSequentialAnimationGroup, QSize, Qt, QThreadPool,
+                            QTimer, QVariantAnimation, Signal)
+from PySide6.QtGui import (QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+                           QRadialGradient)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QDialog, QFrame,
                                QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QHBoxLayout, QHeaderView,
                                QLabel, QPushButton, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate,
                                QTableWidget, QTableWidgetItem, QToolTip, QVBoxLayout, QWidget)
@@ -22,7 +25,7 @@ ESTADO_COLOR = {
     "Activa": C["ok"], "Sin activar": C["info"], "Bloqueada": C["error"], "Vencida": C["aviso"],
     "Pagada": C["ok"], "Aprobada": C["ok"], "Completada": C["ok"], "Reembolsada": C["error"],
     "Contracargo": C["error"], "Reembolso parcial": C["aviso"], "Cancelada": C["tenue"],
-    "Pendiente": C["info"], "Esperando pago": C["info"], "Fallida": C["error"],
+    "Pendiente": C["info"], "Esperando pago": C["info"], "Fallida": C["error"], "En disputa": C["aviso"],
 }
 FUENTE_MONO = ["Cascadia Mono", "Consolas", "SF Mono", "Menlo", "DejaVu Sans Mono", "monospace"]
 ROL_DATO = Qt.ItemDataRole.UserRole
@@ -509,7 +512,7 @@ class GraficoBarras(QWidget):
         self.etiquetas, self.series, self.colores, self.nombres = etiquetas, series, colores, nombres
         if cambio and ms(1):
             self._anim.stop()
-            self._anim.setDuration(ms(800))
+            self._anim.setDuration(ms(1200))
             self._anim.start()
         else:
             self._progreso = 1.0
@@ -546,13 +549,17 @@ class GraficoBarras(QWidget):
             return
         paso = ancho / n
         barra = max(3.0, paso * 0.62)
+        curva = QEasingCurve(QEasingCurve.Type.OutBack)
         for i, etiqueta in enumerate(self.etiquetas):
+            # cada barra arranca un poco después que la anterior (efecto "ola")
+            propio = min(1.0, max(0.0, self._progreso * 1.6 - i / max(1, n) * 0.6))
+            crecimiento = curva.valueForProgress(propio)
             x = izq + i * paso + (paso - barra) / 2
             base = arriba + alto
             if i == self._resaltada:
                 p.fillRect(QRectF(izq + i * paso, arriba, paso, alto), QColor(255, 255, 255, 10))
             for clave, valores in self.series.items():
-                h = alto * valores[i] / maximo * self._progreso
+                h = alto * valores[i] / maximo * crecimiento
                 if h <= 0:
                     continue
                 color = QColor(self.colores.get(clave, C["acento"]))
@@ -677,6 +684,7 @@ class OpcionPlataforma(QFrame):
         self.setStyleSheet(f"QFrame#opcion[seleccionado=\"true\"] {{ border-color: {color}; "
                            f"background: {tinte(color, 0.07)}; }}")
         self.fijar(False)
+        elevar_al_pasar(self, color)
 
     def fijar(self, seleccionado: bool):
         self.setProperty("seleccionado", seleccionado)
@@ -720,6 +728,420 @@ class Chips(QWidget):
         self.grupo.button(self.claves.index(clave)).setText(texto)
 
 
+# ============================================================ más animaciones
+
+class _Onda(QWidget):
+    """Círculo de luz que se expande desde donde se hizo clic (efecto "ripple")."""
+
+    def __init__(self, boton_: QWidget, centro: QPoint, radio_borde: float = 10):
+        super().__init__(boton_)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setGeometry(boton_.rect())
+        self.centro, self.radio_borde, self._p = QPointF(centro), radio_borde, 0.0
+        self._max = math.hypot(max(centro.x(), self.width() - centro.x()), max(centro.y(), self.height() - centro.y()))
+        anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=ms(520))
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.valueChanged.connect(self._avanzar)
+        anim.finished.connect(self.deleteLater)
+        self.show()
+        anim.start()
+
+    def _avanzar(self, v):
+        self._p = float(v)
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        forma = QPainterPath()
+        forma.addRoundedRect(QRectF(self.rect()), self.radio_borde, self.radio_borde)
+        p.setClipPath(forma)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, int(95 * (1 - self._p))))
+        r = self._max * (0.2 + 0.8 * self._p)
+        p.drawEllipse(self.centro, r, r)
+
+
+class _FiltroOnda(QObject):
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Type.MouseButtonPress and ms(1) and obj.isEnabled():
+            _Onda(obj, ev.position().toPoint())
+        return False
+
+
+_FILTRO_ONDA: _FiltroOnda | None = None
+
+
+def con_onda(widget: QWidget):
+    global _FILTRO_ONDA
+    if _FILTRO_ONDA is None:
+        _FILTRO_ONDA = _FiltroOnda()
+    widget.installEventFilter(_FILTRO_ONDA)
+
+
+class _Elevar(QObject):
+    """Sombra que crece al pasar el ratón: la tarjeta parece levantarse."""
+
+    def __init__(self, widget: QWidget, color: QColor):
+        super().__init__(widget)
+        self.sombra = QGraphicsDropShadowEffect(widget, blurRadius=0, offset=QPoint(0, 0), color=color)
+        widget.setGraphicsEffect(self.sombra)
+        self._v = 0.0
+        self.anim = QVariantAnimation(self, duration=260)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.anim.valueChanged.connect(self._aplicar)
+        widget.installEventFilter(self)
+
+    def _aplicar(self, v):
+        # en reposo la sombra queda escondida detrás; al pasar el ratón crece y baja
+        self._v = float(v)
+        self.sombra.setBlurRadius(34 * self._v)
+        self.sombra.setOffset(0, 10 * self._v)
+
+    def eventFilter(self, obj, ev):
+        if ev.type() in (QEvent.Type.Enter, QEvent.Type.Leave):
+            destino = 1.0 if ev.type() == QEvent.Type.Enter else 0.0
+            self.anim.stop()
+            if ms(1):
+                self.anim.setStartValue(self._v)
+                self.anim.setEndValue(destino)
+                self.anim.start()
+            else:
+                self._aplicar(destino)
+        return False
+
+
+def elevar_al_pasar(widget: QWidget, color: str = "#000000"):
+    c = QColor(color)
+    c.setAlpha(150)
+    _Elevar(widget, c)
+
+
+def entrada_escalonada(widgets: list[QWidget], desplazamiento: int = 22, retraso: int = 70, duracion: int = 520):
+    """Los widgets suben a su sitio uno tras otro (como cartas que se reparten)."""
+    if not ms(1):
+        return
+    for i, w in enumerate(widgets):
+        final = w.pos()
+        w.move(final + QPoint(0, desplazamiento))
+        anim = QPropertyAnimation(w, b"pos", w)
+        anim.setDuration(ms(duracion))
+        anim.setStartValue(final + QPoint(0, desplazamiento))
+        anim.setEndValue(final)
+        anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        QTimer.singleShot(i * retraso, anim.start)
+
+
+def latido(widget: QWidget, color: str = "#7c5cff", veces: int = 3):
+    """Destello suave para llamar la atención (por ejemplo, actividad nueva)."""
+    if not ms(1):
+        return
+    original = widget.styleSheet()
+    c = QColor(color)
+    anim = QVariantAnimation(widget, startValue=0.0, endValue=1.0, duration=900)
+    anim.setLoopCount(veces)
+
+    def pintar(v):
+        a = math.sin(math.pi * float(v))
+        widget.setStyleSheet(original + f"QPushButton {{ background: rgba({c.red()},{c.green()},{c.blue()},"
+                                        f"{int(80 * a)}); }}")
+
+    anim.valueChanged.connect(pintar)
+    anim.finished.connect(lambda: widget.setStyleSheet(original))
+    anim.start(QVariantAnimation.DeletionPolicy.DeleteWhenStopped)
+
+
+class BloqueCarga(QWidget):
+    """Rectángulo gris con un brillo que lo recorre: indica que los datos están cargando."""
+
+    def __init__(self, alto: int = 0, radio: int = 14):
+        super().__init__()
+        if alto:
+            self.setFixedHeight(alto)
+        self.radio, self._fase = radio, 0.0
+        self._anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=1400)
+        self._anim.setLoopCount(-1)
+        self._anim.valueChanged.connect(self._avanzar)
+
+    def _avanzar(self, v):
+        self._fase = float(v)
+        self.update()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if ms(1):
+            self._anim.start()
+
+    def hideEvent(self, e):
+        self._anim.stop()
+        super().hideEvent(e)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect())
+        grad = QLinearGradient(r.left(), 0, r.right(), 0)
+        centro = -0.3 + self._fase * 1.6
+        base, luz = QColor(C["panel"]), QColor(C["panel2"]).lighter(125)
+        grad.setColorAt(0, base)
+        for t, color in ((centro - 0.25, base), (centro, luz), (centro + 0.25, base)):
+            if 0 <= t <= 1:
+                grad.setColorAt(t, color)
+        grad.setColorAt(1, base)
+        p.setPen(QPen(QColor(C["borde"]), 1))
+        p.setBrush(grad)
+        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), self.radio, self.radio)
+
+
+class Interruptor(QCheckBox):
+    """Interruptor deslizante (on/off) con la bolita animada."""
+
+    def __init__(self, texto: str = ""):
+        super().__init__(texto)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pos = 0.0
+        self._anim = QVariantAnimation(self, duration=200)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        self._anim.valueChanged.connect(self._mover)
+        self.toggled.connect(self._cambiar)
+
+    def _mover(self, v):
+        self._pos = float(v)
+        self.update()
+
+    def _cambiar(self, activo: bool):
+        destino = 1.0 if activo else 0.0
+        self._anim.stop()
+        if self.isVisible() and ms(1):
+            self._anim.setStartValue(self._pos)
+            self._anim.setEndValue(destino)
+            self._anim.start()
+        else:
+            self._mover(destino)
+
+    def sizeHint(self) -> QSize:
+        return QSize(52 + self.fontMetrics().horizontalAdvance(self.text()) + 10, 28)
+
+    def hitButton(self, pos) -> bool:
+        return self.contentsRect().contains(pos)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pista = QRectF(1, (self.height() - 24) / 2, 44, 24)
+        apagado, encendido = QColor(C["borde2"]), QColor(C["acento"])
+        color = QColor(int(apagado.red() + (encendido.red() - apagado.red()) * min(1, self._pos)),
+                       int(apagado.green() + (encendido.green() - apagado.green()) * min(1, self._pos)),
+                       int(apagado.blue() + (encendido.blue() - apagado.blue()) * min(1, self._pos)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(color)
+        p.drawRoundedRect(pista, 12, 12)
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QPointF(pista.left() + 12 + self._pos * 20, pista.center().y()), 9, 9)
+        p.setPen(QColor(C["texto"]))
+        p.drawText(QRectF(pista.right() + 10, 0, self.width(), self.height()),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text())
+
+
+class MarcaExito(QWidget):
+    """Círculo que se dibuja y una palomita (✓) que aparece trazo a trazo."""
+
+    def __init__(self, color: str = "#22c55e", tam: int = 60):
+        super().__init__()
+        self.setFixedSize(tam, tam)
+        self.color, self._p = QColor(color), 0.0 if ms(1) else 1.0
+        self._anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=ms(900))
+        self._anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._anim.valueChanged.connect(self._avanzar)
+
+    def _avanzar(self, v):
+        self._p = float(v)
+        self.update()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if ms(1) and self._anim.state() != QVariantAnimation.State.Running and self._p == 0:
+            QTimer.singleShot(150, self._anim.start)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(4, 4, self.width() - 8, self.height() - 8)
+        fondo = QColor(self.color)
+        fondo.setAlpha(int(40 * min(1, self._p * 2)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(fondo)
+        p.drawEllipse(r)
+        p.setPen(QPen(self.color, 3.2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        circulo = min(1.0, self._p / 0.6)
+        p.drawArc(r, 90 * 16, int(-360 * 16 * circulo))
+        trazo = max(0.0, (self._p - 0.45) / 0.55)
+        if trazo > 0:
+            a = QPointF(r.left() + r.width() * 0.28, r.top() + r.height() * 0.52)
+            b = QPointF(r.left() + r.width() * 0.44, r.top() + r.height() * 0.68)
+            c = QPointF(r.left() + r.width() * 0.74, r.top() + r.height() * 0.36)
+            camino = QPainterPath(a)
+            primero = min(1.0, trazo / 0.4)
+            camino.lineTo(a + (b - a) * primero)
+            if trazo > 0.4:
+                camino.lineTo(b + (c - b) * ((trazo - 0.4) / 0.6))
+            p.drawPath(camino)
+
+
+class Aurora(QFrame):
+    """Marco con luces de color que se mueven lentamente detrás del contenido."""
+
+    def __init__(self, colores=("#7c5cff", "#4f8cff", "#f472b6"), objectName="heroe"):
+        super().__init__(objectName=objectName)
+        self.colores = [QColor(c) for c in colores]
+        self._fase = 0.0
+        self._anim = QVariantAnimation(self, startValue=0.0, endValue=2 * math.pi, duration=14000)
+        self._anim.setLoopCount(-1)
+        self._anim.valueChanged.connect(self._avanzar)
+
+    def _avanzar(self, v):
+        self._fase = float(v)
+        self.update()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if ms(1):
+            self._anim.start()
+
+    def hideEvent(self, e):
+        self._anim.stop()
+        super().hideEvent(e)
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        forma = QPainterPath()
+        forma.addRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 20, 20)
+        p.setClipPath(forma)
+        w, h = self.width(), self.height()
+        for i, color in enumerate(self.colores):
+            fase = self._fase + i * 2.1
+            centro = QPointF(w * (0.5 + 0.38 * math.cos(fase * (1 + i * 0.3))), h * (0.5 + 0.45 * math.sin(fase)))
+            radial = QRadialGradient(centro, max(w, h) * 0.45)
+            c1, c2 = QColor(color), QColor(color)
+            c1.setAlpha(55)
+            c2.setAlpha(0)
+            radial.setColorAt(0, c1)
+            radial.setColorAt(1, c2)
+            p.fillRect(self.rect(), radial)
+
+
+class Bienvenida(QWidget):
+    """Pantalla de carga al abrir el programa: el logo aparece con un rebote y la barra se llena."""
+
+    def __init__(self, titulo: str, subtitulo: str):
+        super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.SplashScreen
+                         | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(480, 300)
+        self.titulo, self.subtitulo = titulo, subtitulo
+        self._intro, self._barra = (0.0, 0.0) if ms(1) else (1.0, 0.0)
+        self.logo = icono_app().pixmap(160, 160)
+        self._a_intro = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=ms(650))
+        self._a_intro.setEasingCurve(QEasingCurve.Type.OutBack)
+        self._a_intro.valueChanged.connect(lambda v: self._fijar("_intro", v))
+        self._a_barra = QVariantAnimation(self, duration=ms(450))
+        self._a_barra.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._a_barra.valueChanged.connect(lambda v: self._fijar("_barra", v))
+        pantalla = QApplication.primaryScreen()
+        if pantalla:
+            self.move(pantalla.availableGeometry().center() - self.rect().center())
+
+    def _fijar(self, nombre, v):
+        setattr(self, nombre, float(v))
+        self.update()
+
+    def mostrar(self):
+        """Muestra la pantalla y espera a que el logo termine de aparecer (mientras se arma la ventana
+        principal no se pueden dibujar animaciones, así que primero se completa la entrada)."""
+        self.show()
+        if not ms(1):
+            QApplication.processEvents()
+            return
+        bucle = QEventLoop()
+        self._a_intro.finished.connect(bucle.quit)
+        QTimer.singleShot(1500, bucle.quit)          # por si acaso
+        self._a_intro.start()
+        bucle.exec()
+
+    def avanzar(self, valor: float):
+        self._a_barra.stop()
+        self._a_barra.setStartValue(self._barra)
+        self._a_barra.setEndValue(valor)
+        self._a_barra.start()
+        QApplication.processEvents()
+
+    def terminar(self, ventana: QWidget):
+        """Llena la barra, se desvanece y muestra la ventana principal con un fundido."""
+        def mostrar_ventana():
+            ventana.setWindowOpacity(0.0 if ms(1) else 1.0)
+            ventana.show()
+            if ms(1):
+                a = QPropertyAnimation(ventana, b"windowOpacity", ventana)
+                a.setDuration(ms(350))
+                a.setStartValue(0.0)
+                a.setEndValue(1.0)
+                a.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+            salida = QPropertyAnimation(self, b"windowOpacity", self)
+            salida.setDuration(ms(300))
+            salida.setStartValue(1.0)
+            salida.setEndValue(0.0)
+            salida.finished.connect(self.close)
+            salida.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+
+        self.avanzar(1.0)
+        QTimer.singleShot(ms(550), mostrar_ventana)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        r = QRectF(self.rect()).adjusted(6, 6, -6, -6)
+        fondo = QLinearGradient(r.topLeft(), r.bottomRight())
+        fondo.setColorAt(0, QColor("#1d1840"))
+        fondo.setColorAt(1, QColor("#0f1e38"))
+        p.setPen(QPen(QColor(C["borde2"]), 1))
+        p.setBrush(fondo)
+        p.drawRoundedRect(r, 22, 22)
+        # logo con rebote
+        lado = 96 * max(0.0, self._intro)
+        if lado > 1:
+            p.drawPixmap(QRectF(r.center().x() - lado / 2, 58 + (96 - lado) / 2, lado, lado), self.logo,
+                         QRectF(self.logo.rect()))
+        opacidad = max(0.0, min(1.0, (self._intro - 0.3) / 0.7))
+        p.setOpacity(opacidad)
+        f = QFont(self.font())
+        f.setPointSizeF(17)
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor("white"))
+        p.drawText(QRectF(r.left(), 168, r.width(), 32), Qt.AlignmentFlag.AlignCenter, self.titulo)
+        f.setPointSizeF(10)
+        f.setBold(False)
+        p.setFont(f)
+        p.setPen(QColor(C["suave"]))
+        p.drawText(QRectF(r.left(), 200, r.width(), 22), Qt.AlignmentFlag.AlignCenter, self.subtitulo)
+        p.setOpacity(1.0)
+        # barra de progreso
+        pista = QRectF(r.left() + 70, r.bottom() - 46, r.width() - 140, 6)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 30))
+        p.drawRoundedRect(pista, 3, 3)
+        lleno = QRectF(pista.left(), pista.top(), pista.width() * self._barra, pista.height())
+        grad = QLinearGradient(lleno.topLeft(), lleno.topRight())
+        grad.setColorAt(0, QColor(C["acento"]))
+        grad.setColorAt(1, QColor(C["acento2"]))
+        p.setBrush(grad)
+        p.drawRoundedRect(lleno, 3, 3)
+
+
 # ============================================================ helpers
 
 def fuente_mono(puntos: float = -1, negrita=False) -> QFont:
@@ -736,6 +1158,7 @@ def boton(texto: str, estilo="secundario", tip="") -> QPushButton:
     b = QPushButton(texto, objectName=estilo)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setAutoDefault(False)   # Enter en un campo de texto no debe "pulsar" otro botón del diálogo
+    con_onda(b)
     if tip:
         b.setToolTip(tip)
     return b

@@ -1,4 +1,4 @@
-"""Licencias con Lemon Squeezy — este archivo va DENTRO de tu programa.
+"""Licencias con Lemon Squeezy y Gumroad — este archivo va DENTRO de tu programa.
 
 Uso en el arranque (después de crear QApplication y ANTES de mostrar la ventana principal):
 
@@ -6,12 +6,14 @@ Uso en el arranque (después de crear QApplication y ANTES de mostrar la ventana
     if not exigir_licencia():
         sys.exit(0)
 
-El programa habla con la API pública de licencias de Lemon Squeezy:
-  - activar:    la primera vez que el cliente escribe su clave (ocupa un equipo de la licencia)
-  - validar:    en cada arranque (¿sigue activa, vencida, bloqueada, desactivada?)
-  - desactivar: cuando el cliente quiere pasar la licencia a otra computadora
+El programa habla con las APIs públicas de licencias:
+  - Lemon Squeezy: activar (ocupa un equipo), validar en cada arranque y desactivar
+    (el cliente libera su equipo para usar otra computadora).
+  - Gumroad: verificar la clave; al activar suma un "uso" (máximo GUMROAD_MAX_EQUIPOS).
+    Para liberar un uso, tú lo haces desde el Administrador.
+La clave del cliente indica su plataforma: las de Gumroad son 4 bloques de 8 caracteres.
 
-Esa API NO necesita tu API key: nunca la pongas en este archivo ni en tu programa.
+Esas APIs NO necesitan tus claves secretas: nunca pongas una API key ni un token en tu programa.
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ import hmac
 import json
 import os
 import platform
+import re
 import sys
 import time
 import urllib.error
@@ -30,10 +33,16 @@ from datetime import datetime
 from pathlib import Path
 
 # ======================= CONFIGURACIÓN =======================
-# Copia estos valores desde el Administrador: ⚙ Configuración → "Datos para tu programa".
-TIENDA_ID = 0                      # ID de tu tienda en Lemon Squeezy (obligatorio)
+# Copia estos valores desde el Administrador: Conexiones → "Datos para tu programa".
+# Lemon Squeezy (déjalo en 0 si solo vendes en Gumroad)
+TIENDA_ID = 0                      # ID de tu tienda en Lemon Squeezy
 PRODUCTOS_ID: tuple[int, ...] = ()  # IDs de producto aceptados, p. ej. (123456,). Vacío = cualquiera de tu tienda
 URL_COMPRA = ""                    # enlace de compra, p. ej. "https://tutienda.lemonsqueezy.com/buy/..."
+# Gumroad (déjalo vacío si no vendes ahí)
+GUMROAD_PRODUCTO_ID = ""           # "Product ID" de tu producto en Gumroad (aparece en el Administrador)
+GUMROAD_MAX_EQUIPOS = 1            # cuántas computadoras puede activar cada clave de Gumroad (0 = sin límite)
+URL_COMPRA_GUMROAD = ""            # enlace de compra, p. ej. "https://tunombre.gumroad.com/l/producto"
+# Generales
 WHATSAPP_VENDEDOR = ""             # opcional, para soporte: número con código de país, p. ej. "50255551234"
 NOMBRE_APP = "Resolve Creator Subtitles"
 VERSION_APP = "4.1.0"
@@ -42,6 +51,7 @@ ACEPTAR_CLAVES_DE_PRUEBA = True    # claves de compras en "Test mode". Pon False
 # =============================================================
 
 _API = "https://api.lemonsqueezy.com/v1/licenses/"
+_GUMROAD_API = "https://api.gumroad.com/v2/licenses/"
 _CARPETA = Path(os.environ.get("APPDATA") or Path.home() / ".config") / "ResolveCreatorSubtitles"
 _ARCHIVO = _CARPETA / "licencia.dat"
 _SAL = b"rcs-licencia-lemonsqueezy-v1"
@@ -85,11 +95,11 @@ class SinConexion(Exception):
     pass
 
 
-def _llamar(accion: str, datos: dict) -> dict:
-    """POST a la API de licencias. Devuelve la respuesta JSON también cuando Lemon Squeezy
+def _llamar(accion: str, datos: dict, base: str | None = None) -> dict:
+    """POST a la API de licencias. Devuelve la respuesta JSON también cuando la plataforma
     contesta con un error de la licencia (400/404/422); lanza SinConexion si no hay respuesta."""
     req = urllib.request.Request(
-        _API + accion,
+        (base or _API) + accion,
         data=urllib.parse.urlencode(datos).encode(),
         headers={"Accept": "application/json",
                  "Content-Type": "application/x-www-form-urlencoded",
@@ -151,6 +161,46 @@ def _traducir(r: dict) -> tuple[str, str]:
     return "error", str(r.get("error") or "No se pudo verificar la licencia.")
 
 
+def parece_clave_gumroad(clave: str) -> bool:
+    """Las claves de Gumroad son 4 bloques de 8 caracteres: 85DB562A-C11D4B06-A2335A6B-8C079166."""
+    return bool(re.fullmatch(r"[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{8}){3}", clave.strip()))
+
+
+def _verificar_gumroad(clave: str, sumar_uso: bool = False) -> dict:
+    return _llamar("verify", {"product_id": GUMROAD_PRODUCTO_ID, "license_key": clave,
+                              "increment_uses_count": "true" if sumar_uso else "false"}, _GUMROAD_API)
+
+
+def _estado_gumroad(r: dict) -> tuple[str, str] | None:
+    """None si la clave de Gumroad es válida; si no, (codigo, mensaje en español)."""
+    if not r.get("success"):
+        mensaje = str(r.get("message") or "")
+        if "disabled" in mensaje.lower():
+            return "bloqueada", "Tu licencia fue bloqueada. Contacta al vendedor."
+        if r.get("_http") == 404 or "not exist" in mensaje.lower():
+            return "invalida", "La clave no es válida. Revísala (te llegó por correo al comprar)."
+        return "error", mensaje or "No se pudo verificar la licencia."
+    compra = r.get("purchase") or {}
+    if compra.get("refunded") or compra.get("chargebacked") or compra.get("chargedback"):
+        return "reembolsada", "Esta compra fue reembolsada: la licencia ya no es válida."
+    if compra.get("disputed") and not compra.get("dispute_won"):
+        return "bloqueada", "La compra de esta licencia está en disputa. Contacta al vendedor."
+    if compra.get("subscription_ended_at") or compra.get("subscription_failed_at"):
+        return "vencida", "Tu suscripción terminó. Renuévala para seguir usando el programa."
+    if not ACEPTAR_CLAVES_DE_PRUEBA and compra.get("test"):
+        return "otra_tienda", "Esta clave es de una compra de prueba."
+    if compra.get("product_id") and str(compra["product_id"]) != str(GUMROAD_PRODUCTO_ID):
+        return "otra_tienda", f"Esta clave no es de {NOMBRE_APP}."
+    return None
+
+
+def _datos_gumroad(r: dict) -> dict:
+    compra = r.get("purchase") or {}
+    return {"cliente": compra.get("full_name") or compra.get("email") or "", "correo": compra.get("email") or "",
+            "producto": compra.get("product_name") or "", "expira_ts": None,
+            "limite": GUMROAD_MAX_EQUIPOS or None, "usados": r.get("uses")}
+
+
 def _datos_respuesta(r: dict) -> dict:
     lic, meta = r.get("license_key") or {}, r.get("meta") or {}
     return {"cliente": meta.get("customer_name") or "", "correo": meta.get("customer_email") or "",
@@ -179,7 +229,7 @@ def _leer_local() -> dict | None:
         contenido = json.loads(_ARCHIVO.read_text(encoding="utf-8"))
         datos, firma = contenido["datos"], contenido["firma"]
         if (hmac.compare_digest(firma, _firma(datos)) and datos.get("equipo") == obtener_id_equipo()
-                and datos.get("clave") and datos.get("instancia")):
+                and datos.get("clave") and (datos.get("instancia") or datos.get("plataforma") == "gumroad")):
             return datos
     except Exception:
         pass
@@ -214,9 +264,51 @@ class Resultado:
 
 
 def _sin_configurar() -> Resultado | None:
-    if not TIENDA_ID:
-        return Resultado(False, "error", "Falta configurar TIENDA_ID en licencia_cliente.py.")
+    if not TIENDA_ID and not GUMROAD_PRODUCTO_ID:
+        return Resultado(False, "error", "Falta configurar TIENDA_ID o GUMROAD_PRODUCTO_ID en licencia_cliente.py.")
     return None
+
+
+def _sin_conexion(local: dict, e: Exception) -> Resultado:
+    """Sin internet: funciona DIAS_SIN_INTERNET días desde la última verificación correcta."""
+    transcurrido = time.time() - local.get("ultima_ok", 0)
+    expira = local.get("expira_ts")
+    if 0 <= transcurrido < DIAS_SIN_INTERNET * 86400 and (not expira or time.time() < expira):
+        return Resultado(True, "sin_conexion_ok", "Modo sin conexión.", local)
+    return Resultado(False, "sin_conexion", f"{e} Conéctate para verificar tu licencia.", local)
+
+
+def _comprobar_gumroad(local: dict) -> Resultado:
+    try:
+        r = _verificar_gumroad(local["clave"])
+    except SinConexion as e:
+        return _sin_conexion(local, e)
+    fallo = _estado_gumroad(r)
+    if not fallo:
+        datos = local | _datos_gumroad(r) | {"ultima_ok": time.time()}
+        _guardar_local(datos)
+        return Resultado(True, "activa", "Licencia activa.", datos)
+    _guardar_local(local | {"ultima_ok": 0})
+    return Resultado(False, *fallo, local)
+
+
+def _activar_gumroad(clave: str) -> Resultado:
+    try:
+        r = _verificar_gumroad(clave)
+        if fallo := _estado_gumroad(r):
+            return Resultado(False, *fallo)
+        if GUMROAD_MAX_EQUIPOS and (r.get("uses") or 0) >= GUMROAD_MAX_EQUIPOS:
+            return Resultado(False, "en_uso", "Esta licencia ya se activó en el máximo de equipos permitidos. "
+                                              "Pide al vendedor que libere un uso de tu clave.")
+        r = _verificar_gumroad(clave, sumar_uso=True)
+    except SinConexion as e:
+        return Resultado(False, "sin_conexion", f"{e} Se necesita internet para activar.")
+    if fallo := _estado_gumroad(r):
+        return Resultado(False, *fallo)
+    datos = {"plataforma": "gumroad", "clave": clave, "equipo": obtener_id_equipo(), **_datos_gumroad(r),
+             "ultima_ok": time.time()}
+    _guardar_local(datos)
+    return Resultado(True, "activa", "Licencia activada.", datos)
 
 
 def comprobar() -> Resultado:
@@ -226,14 +318,12 @@ def comprobar() -> Resultado:
     local = _leer_local()
     if not local:
         return Resultado(False, "sin_licencia", "Programa sin activar.")
+    if local.get("plataforma") == "gumroad":
+        return _comprobar_gumroad(local)
     try:
         r = _llamar("validate", {"license_key": local["clave"], "instance_id": local["instancia"]})
     except SinConexion as e:
-        transcurrido = time.time() - local.get("ultima_ok", 0)
-        expira = local.get("expira_ts")
-        if 0 <= transcurrido < DIAS_SIN_INTERNET * 86400 and (not expira or time.time() < expira):
-            return Resultado(True, "sin_conexion_ok", "Modo sin conexión.", local)
-        return Resultado(False, "sin_conexion", f"{e} Conéctate para verificar tu licencia.", local)
+        return _sin_conexion(local, e)
 
     if r.get("valid") and _es_nuestra(r):
         datos = local | _datos_respuesta(r) | {"ultima_ok": time.time()}
@@ -262,6 +352,10 @@ def activar(clave: str) -> Resultado:
         if r.ok or r.codigo != "desactivada":
             return r
 
+    if GUMROAD_PRODUCTO_ID and parece_clave_gumroad(clave):
+        return _activar_gumroad(clave)
+    if not TIENDA_ID:
+        return Resultado(False, "invalida", "La clave no es válida. Revísala (te llegó por correo al comprar).")
     try:
         r = _llamar("activate", {"license_key": clave, "instance_name": nombre_instancia()})
     except SinConexion as e:
@@ -290,6 +384,10 @@ def desactivar() -> Resultado:
     if not local:
         _borrar_local()
         return Resultado(True, "sin_licencia", "Este equipo no tenía una licencia activada.")
+    if local.get("plataforma") == "gumroad":
+        _borrar_local()
+        return Resultado(True, "desactivada", "Licencia quitada de este equipo. Para activarla en otra computadora, "
+                                              "pide al vendedor que libere un uso de tu clave.")
     try:
         r = _llamar("deactivate", {"license_key": local["clave"], "instance_id": local["instancia"]})
     except SinConexion as e:
@@ -378,11 +476,15 @@ def _DialogoActivacion(resultado: Resultado, parent=None):
             sub = QLabel("Para usar el programa necesitas una clave de licencia.", objectName="sub")
             sub.setWordWrap(True)
 
-            btn_comprar = QPushButton("Comprar licencia", objectName="comprar")
-            btn_comprar.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(URL_COMPRA)))
-            btn_comprar.setVisible(bool(URL_COMPRA))
+            compras = [(t, u) for t, u in (("Lemon Squeezy", URL_COMPRA), ("Gumroad", URL_COMPRA_GUMROAD)) if u]
+            fila_compra = QHBoxLayout()
+            for tienda, url in compras:
+                b = QPushButton(f"Comprar en {tienda}" if len(compras) > 1 else "Comprar licencia",
+                                objectName="comprar")
+                b.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
+                fila_compra.addWidget(b)
 
-            self.txt = QLineEdit(placeholderText="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+            self.txt = QLineEdit(placeholderText="Pega aquí tu clave de licencia")
             self.txt.setFont(_mono(12))
             self.txt.setText((resultado.datos or {}).get("clave", ""))
             self.txt.returnPressed.connect(self.activar)
@@ -410,11 +512,11 @@ def _DialogoActivacion(resultado: Resultado, parent=None):
             lay.setSpacing(12)
             lay.addWidget(titulo)
             lay.addWidget(sub)
-            if URL_COMPRA:
+            if compras:
                 lay.addWidget(QLabel("1. Compra tu licencia (te llega la clave por correo):", objectName="paso"))
-                lay.addWidget(btn_comprar)
+                lay.addLayout(fila_compra)
                 lay.addSpacing(6)
-            lay.addWidget(QLabel(("2. " if URL_COMPRA else "") + "Escribe tu clave de licencia:",
+            lay.addWidget(QLabel(("2. " if compras else "") + "Escribe tu clave de licencia:",
                                  objectName="paso"))
             lay.addWidget(self.txt)
             lay.addWidget(self.msg)
@@ -472,7 +574,8 @@ def _DialogoMiLicencia(parent=None):
             form.addRow("Clave:", etiqueta_clave)
             form.addRow("Vence:", QLabel(datetime.fromtimestamp(expira).strftime("%d/%m/%Y") if expira else "Nunca"))
             if usados is not None:
-                form.addRow("Equipos:", QLabel(f"{usados} de {limite if limite else 'ilimitados'}"))
+                form.addRow("Usos:" if datos.get("plataforma") == "gumroad" else "Equipos:",
+                            QLabel(f"{usados} de {limite if limite else 'ilimitados'}"))
             form.addRow("Este equipo:", QLabel(nombre_instancia()))
 
             self.msg = QLabel(objectName="msg")

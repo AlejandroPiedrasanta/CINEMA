@@ -1,4 +1,4 @@
-"""Pruebas del sistema de licencias contra el simulador de Lemon Squeezy y Hotmart (no usa internet).
+"""Pruebas del sistema de licencias contra el simulador de Lemon Squeezy, Hotmart y Gumroad (sin internet).
 
     pip install -r licencias/requirements.txt
     python -m unittest discover -s licencias/pruebas -v
@@ -32,6 +32,7 @@ BASE = RAIZ_SIM + "/v1/"
 CFG_LS = {"api_key": sim.API_KEY, "tienda_id": sim.TIENDA, "tienda_nombre": "Mi Tienda",
           "producto_id": sim.PRODUCTO, "moneda": "USD"}
 CFG_HM = {"client_id": sim.HM_ID, "client_secret": sim.HM_SECRETO}
+CFG_GR = {"token": sim.GR_TOKEN, "producto_id": sim.GR_PRODUCTO}
 
 
 class Base(unittest.TestCase):
@@ -48,6 +49,9 @@ class Base(unittest.TestCase):
             mock.patch.object(plat, "LS_API", BASE),
             mock.patch.object(plat, "HOTMART_AUTH", RAIZ_SIM + "/security/oauth/token"),
             mock.patch.object(plat, "HOTMART_API", {False: RAIZ_SIM, True: RAIZ_SIM}),
+            mock.patch.object(plat, "GUMROAD_API", RAIZ_SIM + "/v2/"),
+            mock.patch.object(cli, "_GUMROAD_API", RAIZ_SIM + "/v2/licenses/"),
+            mock.patch.object(cli, "GUMROAD_PRODUCTO_ID", sim.GR_PRODUCTO),
             mock.patch.object(adm, "CARPETA_CONFIG", self.carpeta / "admin"),
             mock.patch.object(adm, "ARCHIVO_CONFIG", self.carpeta / "admin" / "config.json"),
             mock.patch.object(adm, "ARCHIVO_CONFIG_V2", self.carpeta / "admin" / "config_lemonsqueezy.json"),
@@ -56,6 +60,7 @@ class Base(unittest.TestCase):
             p.start()
         self.api = plat.LemonSqueezy(sim.API_KEY)
         self.hm = plat.Hotmart(sim.HM_ID, sim.HM_SECRETO)
+        self.gr = plat.Gumroad(sim.GR_TOKEN)
 
     def tearDown(self):
         for p in self.parches:
@@ -70,7 +75,7 @@ class Base(unittest.TestCase):
 
 class ProgramaCliente(Base):
     def test_sin_configurar(self):
-        with mock.patch.object(cli, "TIENDA_ID", 0):
+        with mock.patch.object(cli, "TIENDA_ID", 0), mock.patch.object(cli, "GUMROAD_PRODUCTO_ID", ""):
             self.assertEqual(cli.comprobar().codigo, "error")
             self.assertEqual(cli.activar("x").codigo, "error")
 
@@ -181,6 +186,79 @@ class ProgramaCliente(Base):
         texto = cli._ARCHIVO.read_text(encoding="utf-8").replace('"ultima_ok": ', '"ultima_ok": 9')
         cli._ARCHIVO.write_text(texto, encoding="utf-8")
         self.assertIsNone(cli.licencia_guardada())
+
+
+class GumroadCliente(Base):
+    def en_otro_equipo(self):
+        parches = self.otro_equipo()
+        for p in parches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in parches])
+
+    def test_activar_validar_y_limite(self):
+        venta = sim.DATOS.vender_gumroad(cliente="Mateo Ríos", correo="mateo@x.com")
+        clave = venta["license_key"]
+        self.assertTrue(cli.parece_clave_gumroad(clave))
+        r = cli.activar(clave)
+        self.assertTrue(r.ok, r.mensaje)
+        self.assertEqual((r.datos["plataforma"], r.datos["cliente"], r.datos["usados"]), ("gumroad", "Mateo Ríos", 1))
+        self.assertTrue(cli.comprobar().ok)
+        self.assertTrue(cli.activar(clave).ok)                       # otra vez en el mismo equipo
+        self.assertEqual(sim.DATOS.gumroad_claves[clave]["uses"], 1, "validar no gasta usos")
+        self.en_otro_equipo()
+        self.assertEqual(cli.activar(clave).codigo, "en_uso")
+        self.assertEqual(self.gr.liberar_uso(sim.GR_PRODUCTO, clave), 0)   # el vendedor libera un uso
+        self.assertTrue(cli.activar(clave).ok)
+
+    def test_bloqueo_reembolso_e_invalida(self):
+        clave = sim.DATOS.vender_gumroad()["license_key"]
+        self.assertTrue(cli.activar(clave).ok)
+        self.gr.bloquear(sim.GR_PRODUCTO, clave)
+        self.assertEqual(cli.comprobar().codigo, "bloqueada")
+        self.assertTrue(self.gr.licencia(sim.GR_PRODUCTO, clave)["bloqueada"])
+        self.gr.bloquear(sim.GR_PRODUCTO, clave, False)
+        self.assertTrue(cli.comprobar().ok)
+        sim.DATOS.gumroad_claves[clave]["venta"]["refunded"] = True
+        self.assertEqual(cli.comprobar().codigo, "reembolsada")
+        self.assertEqual(cli.activar("AAAAAAAA-BBBBBBBB-CCCCCCCC-DDDDDDDD").codigo, "invalida")
+
+    def test_desactivar_y_sin_internet(self):
+        clave = sim.DATOS.vender_gumroad()["license_key"]
+        self.assertTrue(cli.activar(clave).ok)
+        with mock.patch.object(cli, "_GUMROAD_API", "http://127.0.0.1:9/v2/licenses/"):
+            self.assertEqual(cli.comprobar().codigo, "sin_conexion_ok")
+        r = cli.desactivar()
+        self.assertTrue(r.ok)
+        self.assertIn("libere un uso", r.mensaje)
+        self.assertIsNone(cli.licencia_guardada())
+
+    def test_solo_gumroad_y_compras_de_prueba(self):
+        with mock.patch.object(cli, "TIENDA_ID", 0):
+            self.assertEqual(cli.activar("38b1460a-5104-4067-a91d-77b872934d51").codigo, "invalida")
+            prueba = sim.DATOS.vender_gumroad(test=True)["license_key"]
+            with mock.patch.object(cli, "ACEPTAR_CLAVES_DE_PRUEBA", False):
+                self.assertEqual(cli.activar(prueba).codigo, "otra_tienda")
+            otra = sim.DATOS.vender_gumroad(producto="otro")["license_key"]
+            self.assertEqual(cli.activar(otra).codigo, "invalida")      # la clave es de otro producto
+
+
+class GumroadApi(Base):
+    def test_token_incorrecto(self):
+        with self.assertRaises(plat.ErrorApi) as e:
+            plat.Gumroad("malo").conectar()
+        self.assertIn("access token", str(e.exception))
+
+    def test_conectar_ventas_y_paginacion(self):
+        for i in range(23):
+            sim.DATOS.vender_gumroad(cliente=f"C{i}", correo=f"c{i}@x.com")
+        sim.DATOS.vender_gumroad(cliente="R", correo="r@x.com", reembolsada=True)
+        sim.DATOS.vender_gumroad(cliente="C0", correo="C0@x.com", con_clave=False)
+        r = self.gr.conectar()
+        self.assertEqual(r["usuario"]["name"], "Alejandro")
+        self.assertEqual(r["productos"][0]["id"], sim.GR_PRODUCTO)
+        self.assertEqual((r["ventas_validas"], r["compradores"], r["reembolsos"], r["claves"]), (24, 23, 1, 24))
+        v = next(x for x in self.gr.ventas(max_edad=0) if x["cliente"] == "R")
+        self.assertEqual((v["estado"], v["valida"], v["total"], v["total_txt"]), ("Reembolsada", False, 25.0, "$25"))
 
 
 class LemonSqueezyApi(Base):
@@ -307,6 +385,25 @@ class Modelo(Base):
         self.assertEqual(personas["pedro@x.com"]["estado"], "Reembolsada")
         self.assertEqual(m["ventas_30"], 3)
         self.assertEqual(sum(m["serie"]["hotmart"]), 2)
+
+    def test_licencias_de_gumroad_en_el_modelo(self):
+        a = sim.DATOS.vender_gumroad(cliente="Ana", correo="ana@x.com")
+        b = sim.DATOS.vender_gumroad(cliente="Bea", correo="bea@x.com", reembolsada=True)
+        lic_ls = sim.DATOS.vender(cliente="Ana", correo="ANA@x.com")
+        res = adm.cargar_todo({"lemonsqueezy": self.api, "gumroad": self.gr},
+                              {"plataformas": {"lemonsqueezy": CFG_LS, "gumroad": CFG_GR | {"bloqueadas": [a["license_key"]]}}})
+        m = adm.construir_modelo(res)
+        por_clave = {l["key"]: l for l in m["licencias"]}
+        self.assertEqual(por_clave[a["license_key"]]["status"], "disabled")
+        self.assertEqual(por_clave[b["license_key"]]["status"], "refunded")
+        self.assertEqual(por_clave[lic_ls["key"]]["plataforma"], "lemonsqueezy")
+        ana = next(p for p in m["personas"] if p["clave"] == "ana@x.com")
+        self.assertEqual(ana["plataformas"], {"lemonsqueezy", "gumroad"})
+        texto = adm.datos_para_programa(CFG_LS, CFG_GR | {"url_compra": "https://x.gumroad.com/l/rcs"})
+        espacio = {}
+        exec(texto, espacio)
+        self.assertEqual((espacio["GUMROAD_PRODUCTO_ID"], espacio["URL_COMPRA_GUMROAD"]),
+                         (sim.GR_PRODUCTO, "https://x.gumroad.com/l/rcs"))
 
     def test_error_en_una_plataforma_no_bloquea_la_otra(self):
         sim.DATOS.vender()
@@ -435,6 +532,59 @@ class Ventanas(Base):
         with mock.patch.object(adm, "confirmar", return_value=True):
             v.desconectar("hotmart")
         self.assertEqual(set(v.clientes), {"lemonsqueezy"})
+        v.close()
+
+    def test_gumroad_en_el_panel(self):
+        a = sim.DATOS.vender_gumroad(cliente="Ana", correo="ana@x.com")
+        v = self.ventana({"gumroad": CFG_GR})
+        licencias = v.paginas[2]
+        self.esperar(lambda: licencias.t.rowCount() == 1)
+        self.assertFalse(licencias.nuevo.isVisibleTo(licencias), "sin Lemon Squeezy no hay enlaces de compra")
+        v.ir_a(2)
+        licencias.t.selectRow(0)
+        self.esperar(lambda: licencias.lbl_usos is not None and licencias.lbl_usos.text() == "0")
+        with mock.patch.object(adm, "confirmar", return_value=True):
+            v.bloquear_gumroad(v.modelo["licencias"][0])
+        self.esperar(lambda: sim.DATOS.gumroad_claves[a["license_key"]]["disabled"])
+        self.esperar(lambda: v.modelo["licencias"][0]["status"] == "disabled")
+        self.assertEqual(adm.cargar_config()["plataformas"]["gumroad"]["bloqueadas"], [a["license_key"]])
+        sim.DATOS.gumroad_claves[a["license_key"]]["uses"] = 2
+        with mock.patch.object(adm, "confirmar", return_value=True):
+            v.liberar_uso_gumroad(v.modelo["licencias"][0])
+        self.esperar(lambda: sim.DATOS.gumroad_claves[a["license_key"]]["uses"] == 1)
+        v.close()
+
+    def test_conectar_gumroad(self):
+        sim.DATOS.vender_gumroad()
+        v = self.ventana({})
+        d = adm.DialogoConectar(v, "gumroad")
+        d.token_gr.setText(sim.GR_TOKEN)
+        d.conectar()
+        self.esperar(lambda: d.resultado is not None)
+        plataforma, datos, resumen, cliente = d.resultado
+        r = adm.DialogoResumen(plataforma, cliente, resumen, datos, v)
+        self.assertIn(f'GUMROAD_PRODUCTO_ID = "{sim.GR_PRODUCTO}"', r.codigo.text())
+        r.guardar()
+        v._guardar_conexion(plataforma, r.datos)
+        guardado = adm.cargar_config()["plataformas"]["gumroad"]
+        self.assertEqual((guardado["producto_id"], guardado["url_compra"]),
+                         (sim.GR_PRODUCTO, "https://alejandro.gumroad.com/l/rcs"))
+        v.close()
+
+    def test_componentes_animados(self):
+        interruptor = interfaz.Interruptor("Animaciones")
+        interruptor.setChecked(True)
+        self.assertEqual(interruptor._pos, 1.0)               # oculto: se mueve sin animar
+        marca = interfaz.MarcaExito()
+        marca.show()
+        self.esperar(lambda: marca._p == 1.0, 3)
+        v = self.ventana({})
+        b = interfaz.Bienvenida("Administrador", "v4")
+        b.mostrar()
+        self.assertEqual(b._intro, 1.0, "el logo termina de aparecer antes de armar la ventana")
+        b.terminar(v)
+        self.esperar(lambda: v.isVisible() and not b.isVisible(), 4)
+        interfaz.entrada_escalonada([v.btn_refrescar])
         v.close()
 
     def test_dialogos_y_animaciones(self):

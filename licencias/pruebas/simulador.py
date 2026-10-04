@@ -5,6 +5,8 @@ Imita los endpoints que usan licencia_cliente.py y el Administrador:
   - API principal (JSON:API con Bearer): users/me, stores, products, variants, license-keys,
     license-key-instances, orders, checkouts, discounts
   - Hotmart: POST /security/oauth/token, GET /payments/api/v1/sales/history, GET /products/api/v1/products
+  - Gumroad: GET /v2/user | products | sales, POST /v2/licenses/verify,
+    PUT /v2/licenses/enable | disable | decrement_uses_count
 """
 from __future__ import annotations
 
@@ -23,6 +25,8 @@ VARIANTE = 333
 HM_ID, HM_SECRETO = "hotmart-id", "hotmart-secreto"
 HM_PRODUCTO = 4444
 HM_TOKEN = "token-hotmart-de-prueba"
+GR_TOKEN = "token-gumroad-de-prueba"
+GR_PRODUCTO = "gr-prod-ABC=="
 
 
 def ahora() -> str:
@@ -40,6 +44,8 @@ class Datos:
         self.hotmart: list[dict] = []
         self.hotmart_rechaza_fechas = False
         self.hotmart_tokens = 0
+        self.gumroad: list[dict] = []
+        self.gumroad_claves: dict[str, dict] = {}
         self._id = 1000
 
     def nuevo_id(self) -> int:
@@ -80,6 +86,21 @@ class Datos:
                              "payment": {"method": "CREDIT_CARD", "installments_number": 1}}}
         self.hotmart.append(item)
         return item
+
+    def vender_gumroad(self, cliente="Mateo Ríos", correo="mateo@example.com", producto=GR_PRODUCTO,
+                       reembolsada=False, con_clave=True, test=False) -> dict:
+        n = self.nuevo_id()
+        clave = "-".join(uuid.uuid4().hex[:8].upper() for _ in range(4)) if con_clave else None
+        venta = {"id": f"S{n}==", "email": cliente.split()[0].lower() + "@x.com" if not correo else correo,
+                 "seller_id": "vendedor", "created_at": ahora(), "product_name": "Resolve Creator Subtitles",
+                 "product_id": producto, "price": 2500, "formatted_display_price": "$25",
+                 "formatted_total_price": "$25", "currency_symbol": "$", "full_name": cliente, "order_id": n,
+                 "refunded": reembolsada, "partially_refunded": False, "chargedback": False, "disputed": False,
+                 "dispute_won": False, "test": test, "license_key": clave}
+        self.gumroad.append(venta)
+        if clave:
+            self.gumroad_claves[clave] = {"uses": 0, "disabled": False, "venta": venta}
+        return venta
 
     def por_clave(self, clave: str):
         return next(((i, l) for i, l in self.licencias.items() if l["key"] == clave), (None, None))
@@ -231,9 +252,65 @@ class Manejador(BaseHTTPRequestHandler):
         self._responder(200, {"items": pagina, "page_info": {"total_results": len(items), "results_per_page": tam,
                                                              **({"next_page_token": siguiente} if siguiente else {})}})
 
+    # ------------------------------------------------------------ Gumroad
+    def _gumroad(self, metodo: str, ruta: str, p: dict):
+        if ruta != "licenses/verify":
+            if p.get("access_token") != GR_TOKEN or self.headers.get("Authorization") != f"Bearer {GR_TOKEN}":
+                return self._responder(401, {"success": False, "message": "The access token is invalid"})
+        if metodo == "GET" and ruta == "user":
+            return self._responder(200, {"success": True, "user": {"name": "Alejandro", "email": "vendedor@example.com",
+                                                                     "user_id": "u1", "url": "https://alejandro.gumroad.com"}})
+        if metodo == "GET" and ruta == "products":
+            return self._responder(200, {"success": True, "products": [{
+                "id": GR_PRODUCTO, "name": "Resolve Creator Subtitles", "price": 2500, "currency": "usd",
+                "formatted_price": "$25", "short_url": "https://alejandro.gumroad.com/l/rcs", "published": True,
+                "sales_count": str(len(DATOS.gumroad))}]})
+        if metodo == "GET" and ruta == "sales":
+            ventas = [v for v in DATOS.gumroad if not p.get("product_id") or v["product_id"] == p["product_id"]]
+            desde = int(p.get("page_key") or 0)
+            pagina = ventas[desde:desde + 10]
+            siguiente = str(desde + 10) if desde + 10 < len(ventas) else None
+            return self._responder(200, {"success": True, "sales": pagina, "next_page_key": siguiente,
+                                         "next_page_url": f"/v2/sales?page_key={siguiente}" if siguiente else None})
+        if ruta.startswith("licenses/"):
+            lic = DATOS.gumroad_claves.get(p.get("license_key", ""))
+            if not lic or lic["venta"]["product_id"] != p.get("product_id"):
+                return self._responder(404, {"success": False,
+                                             "message": "That license does not exist for the provided product."})
+            accion = ruta.split("/")[1]
+            if accion == "verify":
+                if lic["disabled"]:
+                    return self._responder(200, {"success": False, "message": "This license key has been disabled."})
+                if p.get("increment_uses_count", "true") != "false":
+                    lic["uses"] += 1
+            elif accion in ("disable", "enable"):
+                lic["disabled"] = accion == "disable"
+            elif accion == "decrement_uses_count":
+                lic["uses"] = max(0, lic["uses"] - 1)
+            v = lic["venta"]
+            compra = {"product_id": v["product_id"], "product_name": v["product_name"], "email": v["email"],
+                      "full_name": v["full_name"], "license_key": v["license_key"], "refunded": v["refunded"],
+                      "chargebacked": v["chargedback"], "disputed": v["disputed"], "dispute_won": False,
+                      "test": v["test"], "subscription_ended_at": None, "subscription_failed_at": None}
+            return self._responder(200, {"success": True, "uses": lic["uses"], "purchase": compra})
+        self._responder(404, {"success": False, "message": "Not found"})
+
+    def _form(self) -> dict:
+        return {k: v[0] for k, v in urllib.parse.parse_qs(self._cuerpo().decode()).items()}
+
+    def do_PUT(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path.startswith("/v2/"):
+            with DATOS.lock:
+                return self._gumroad("PUT", url.path[4:], self._form())
+        self._responder(404, {"errors": [{"status": "404", "title": "Not Found"}]})
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
+        if url.path.startswith("/v2/"):
+            with DATOS.lock:
+                return self._gumroad("GET", url.path[4:], {k: v[0] for k, v in q.items()})
         if url.path.startswith(("/payments/", "/products/api/")):
             with DATOS.lock:
                 return self._hotmart_get(url.path, q)
@@ -282,6 +359,9 @@ class Manejador(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         if url.path == "/security/oauth/token":
             return self._hotmart_token(urllib.parse.parse_qs(url.query))
+        if url.path.startswith("/v2/"):
+            with DATOS.lock:
+                return self._gumroad("POST", url.path[4:], self._form())
         ruta = url.path.removeprefix("/v1/")
         if ruta.startswith("licenses/"):
             return self._licencias(ruta.split("/")[1])
