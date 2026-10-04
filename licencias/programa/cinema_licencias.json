@@ -1,0 +1,12 @@
+{
+  "app": "Resolve Creator Subtitles",
+  "version": "5.0.0",
+  "lemonsqueezy": {"tienda_id": 0, "productos": [], "url_compra": ""},
+  "gumroad": {"producto_id": "", "max_equipos": 1, "url_compra": ""},
+  "polar": {"organizacion_id": "", "beneficio_id": "", "url_compra": "", "sandbox": false},
+  "servidor": {"url": "", "clave_publica": ""},
+  "soporte": {"whatsapp": "", "correo": ""},
+  "opciones": {"dias_sin_internet": 7, "aceptar_pruebas": true, "revisar_cada_min": 30, "latido_cada_min": 5,
+               "segundos_antes_de_cerrar": 12, "telemetria": true, "enviar_nombre_equipo": true},
+  "apariencia": {"marca": true, "tema": "oscuro", "color_acento": "#e50914"}
+}

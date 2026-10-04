@@ -1,64 +1,128 @@
-"""Tema visual y componentes animados del Administrador de Licencias (PySide6)."""
+"""Cinema Productions · Administrador de Licencias — componentes animados de la interfaz (PySide6).
+
+Todos los colores salen del tema activo (temas.C). Las animaciones respetan la velocidad elegida en
+Ajustes (0 = desactivadas).
+
+Creado por Cinema Productions.
+"""
 from __future__ import annotations
 
+import hashlib
 import math
 
 from PySide6.QtCore import (QEasingCurve, QEvent, QEventLoop, QObject, QParallelAnimationGroup, QPoint, QPointF,
                             QPropertyAnimation, QRectF, QRunnable, QSequentialAnimationGroup, QSize, Qt, QThreadPool,
                             QTimer, QVariantAnimation, Signal)
-from PySide6.QtGui import (QColor, QFont, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
-                           QRadialGradient)
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QDialog, QFrame,
-                               QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QHBoxLayout, QHeaderView,
-                               QLabel, QPushButton, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate,
-                               QTableWidget, QTableWidgetItem, QToolTip, QVBoxLayout, QWidget)
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QRadialGradient
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QFrame,
+                               QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QHBoxLayout, QHeaderView, QLabel,
+                               QPushButton, QSizePolicy, QStackedWidget, QStyle, QStyledItemDelegate, QTableWidget,
+                               QTableWidgetItem, QToolTip, QVBoxLayout, QWidget)
+
+from temas import (C, DENSIDADES, ESP_MD, ESP_SM, ESP_XS, LETRA, RADIO_LG, RADIO_XL, aplicar_tema,
+                   construir_qss)
+from cinema_licencias.ventanas import (ANIM, MARCA, BarraTitulo, BotonVentana, DialogoSinMarco, IconoEstado,
+                                       banderas_sin_marco, dur, esquinas_redondeadas_windows, icono_app,
+                                       icono_cinema, informar, instalar_agarraderas, logo_cinema, mezclar, notificar,
+                                       pedir_texto, preguntar, tinte)
+
+__author__ = "Cinema Productions"
+__all__ = ["ANIM", "C", "MARCA", "BarraTitulo", "BotonVentana", "IconoEstado", "aplicar_tema", "banderas_sin_marco",
+           "construir_qss", "esquinas_redondeadas_windows", "icono_app", "icono_cinema", "informar",
+           "instalar_agarraderas", "logo_cinema", "mezclar", "notificar", "pedir_texto", "preguntar", "tinte"]
 
 ANIMACIONES = {"activas": True}
-
-C = {
-    "fondo": "#0d0f14", "panel": "#141823", "panel2": "#1a1f2d", "borde": "#252b3b", "borde2": "#323a50",
-    "texto": "#e8ebf3", "suave": "#8d95aa", "tenue": "#5d6579",
-    "acento": "#7c5cff", "acento2": "#4f8cff", "ok": "#22c55e", "aviso": "#f59e0b", "error": "#ef4444",
-    "info": "#38bdf8",
-}
-ESTADO_COLOR = {
-    "Activa": C["ok"], "Sin activar": C["info"], "Bloqueada": C["error"], "Vencida": C["aviso"],
-    "Pagada": C["ok"], "Aprobada": C["ok"], "Completada": C["ok"], "Reembolsada": C["error"],
-    "Contracargo": C["error"], "Reembolso parcial": C["aviso"], "Cancelada": C["tenue"],
-    "Pendiente": C["info"], "Esperando pago": C["info"], "Fallida": C["error"], "En disputa": C["aviso"],
+PRIVACIDAD = {"activa": False, "claves": False}
+TABLA = {"alto": DENSIDADES["normal"]}
+ESTADO_TOKEN = {
+    "Activa": "ok", "Sin activar": "info", "Bloqueada": "error", "Vencida": "aviso", "Revocada": "error",
+    "Pagada": "ok", "Aprobada": "ok", "Completada": "ok", "Reembolsada": "error", "Contracargo": "error",
+    "Reembolso parcial": "aviso", "Cancelada": "tenue", "Anulada": "tenue", "Borrador": "tenue",
+    "Pendiente": "info", "Esperando pago": "info", "Fallida": "error", "En disputa": "aviso",
+    "En línea": "ok", "Suspendida": "error", "Retirada": "error",
 }
 FUENTE_MONO = ["Cascadia Mono", "Consolas", "SF Mono", "Menlo", "DejaVu Sans Mono", "monospace"]
 ROL_DATO = Qt.ItemDataRole.UserRole
 ROL_COLOR = Qt.ItemDataRole.UserRole + 1
+ROL_ORDEN = Qt.ItemDataRole.UserRole + 2
 
 
 def ms(duracion: int) -> int:
     """Duración de una animación (0 si el usuario las desactivó)."""
-    return duracion if ANIMACIONES["activas"] else 0
+    return dur(duracion)
+
+
+def fijar_animaciones(activas: bool, velocidad: float = 1.0):
+    ANIMACIONES["activas"] = bool(activas)
+    ANIM["factor"] = float(velocidad) if activas else 0.0
 
 
 def color_estado(texto: str) -> str:
-    return ESTADO_COLOR.get(texto, C["suave"])
+    return C.get(ESTADO_TOKEN.get(texto, "suave"), C["suave"])
 
 
-def tinte(color: str, alfa: float = 0.14) -> str:
-    """Versión translúcida de un color para fondos (Qt lee #RRGGBBAA al revés, por eso rgba)."""
+def legible(color: str) -> str:
+    """En temas claros, los colores muy claros (amarillo de Lemon Squeezy…) se oscurecen para leerse."""
     c = QColor(color)
-    return f"rgba({c.red()}, {c.green()}, {c.blue()}, {int(alfa * 255)})"
+    if not C.get("oscuro", True) and c.lightness() > 150:
+        return c.darker(175).name()
+    return color
 
+
+# ============================================================ privacidad
+
+def _velar(palabra: str) -> str:
+    return (palabra[:1] + "•" * min(5, max(2, len(palabra) - 1))) if palabra else ""
+
+
+def priv_nombre(nombre: str | None) -> str:
+    """'Juan Pérez' → 'J••• P••••' cuando el modo privado está activo."""
+    if not nombre or not PRIVACIDAD["activa"]:
+        return nombre or ""
+    if "@" in nombre:
+        return priv_correo(nombre)
+    return " ".join(_velar(p) for p in str(nombre).split())
+
+
+def priv_correo(correo: str | None) -> str:
+    """'juan@gmail.com' → 'j•••@g••••.com' cuando el modo privado está activo."""
+    if not correo or not PRIVACIDAD["activa"] or "@" not in str(correo):
+        return correo or ""
+    usuario, _, dominio = str(correo).partition("@")
+    nombre, punto, final = dominio.rpartition(".")
+    return f"{_velar(usuario)}@{_velar(nombre or dominio)}{punto}{final if nombre else ''}"
+
+
+def priv_clave(clave: str | None) -> str:
+    if not clave or not (PRIVACIDAD["activa"] and PRIVACIDAD["claves"]):
+        return clave or ""
+    return f"••••-••••-{str(clave)[-4:]}"
+
+
+def priv_tel(tel: str | None) -> str:
+    if not tel or not PRIVACIDAD["activa"]:
+        return tel or ""
+    return "•" * max(0, len(tel) - 3) + tel[-3:]
+
+
+def priv_equipo(nombre: str | None) -> str:
+    return priv_nombre(nombre) if nombre else ""
+
+
+# ============================================================ pequeñas piezas
 
 def estilo_pildora(etiqueta_: QLabel, texto: str, color: str):
     etiqueta_.setText(texto)
-    etiqueta_.setStyleSheet(f"color:{color}; background:{tinte(color)}; border-radius:12px; padding:2px 12px;"
-                            "font-weight:700;")
+    etiqueta_.setStyleSheet(f"color:{legible(color)}; background:{tinte(color)}; border-radius:12px; "
+                            "padding:2px 12px; font-weight:700;")
 
 
-def pildora(texto: str = "", color: str = "#8d95aa") -> QLabel:
+def pildora(texto: str = "", color: str | None = None) -> QLabel:
     """Etiqueta de estado redondeada (Activa, Conectado, Modo prueba…)."""
     l = QLabel()
     l.setFixedHeight(24)
     l.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-    estilo_pildora(l, texto, color)
+    estilo_pildora(l, texto, color or C["suave"])
     return l
 
 
@@ -68,6 +132,43 @@ def insignia_icono(icono: str, color: str, tam: int = 52) -> QLabel:
     l.setFixedSize(tam, tam)
     l.setStyleSheet(f"font-size:{int(tam * 0.5)}px; background:{tinte(color, 0.16)}; border-radius:{tam // 3}px;")
     return l
+
+
+class Avatar(QWidget):
+    """Círculo con las iniciales de la persona y un color fijo según su nombre o correo."""
+
+    PALETA = ("#e50914", "#7c5cff", "#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#8b5cf6", "#ef4444")
+
+    def __init__(self, nombre: str = "", clave: str = "", tam: int = 40):
+        super().__init__()
+        self.setFixedSize(tam, tam)
+        self.fijar(nombre, clave)
+
+    def fijar(self, nombre: str, clave: str = ""):
+        partes = [p for p in (nombre or "").replace("@", " ").split() if p]
+        self.iniciales = "".join(p[0] for p in partes[:2]).upper() or "?"
+        if PRIVACIDAD["activa"]:
+            self.iniciales = self.iniciales[:1]
+        h = int(hashlib.md5((clave or nombre or "?").lower().encode()).hexdigest()[:6], 16)
+        self.color = QColor(self.PALETA[h % len(self.PALETA)])
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        grad = QLinearGradient(r.topLeft(), r.bottomRight())
+        grad.setColorAt(0, self.color.lighter(120))
+        grad.setColorAt(1, self.color.darker(130))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(grad)
+        p.drawEllipse(r)
+        f = QFont(self.font())
+        f.setPixelSize(int(self.height() * 0.38))
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor("#ffffff"))
+        p.drawText(r, Qt.AlignmentFlag.AlignCenter, self.iniciales)
 
 
 # ============================================================ tareas en segundo plano
@@ -128,7 +229,10 @@ def fundido(widget: QWidget, desde=0.0, hasta=1.0, duracion=260, al_terminar=Non
 
     def fin():
         if hasta >= 1:
-            widget.setGraphicsEffect(None)
+            try:
+                widget.setGraphicsEffect(None)
+            except RuntimeError:
+                return
         if al_terminar:
             al_terminar()
 
@@ -152,40 +256,34 @@ def sacudir(widget: QWidget):
 
 # ============================================================ componentes
 
-class DialogoBase(QDialog):
-    """Diálogo que aparece con un fundido suave."""
+class DialogoBase(DialogoSinMarco):
+    """Diálogo del Administrador: sin marco, con barra propia, sombra y animación de entrada.
+    El contenido se agrega a self.cuerpo."""
 
-    def showEvent(self, e):
-        super().showEvent(e)
-        if ms(1) and not getattr(self, "_animado", False):
-            self._animado = True
-            self.setWindowOpacity(0.0)
-            anim = QPropertyAnimation(self, b"windowOpacity", self)
-            anim.setDuration(ms(220))
-            anim.setStartValue(0.0)
-            anim.setEndValue(1.0)
-            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-            anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+    def __init__(self, parent=None, titulo: str = "", ancho: int = 0, redimensionable: bool = True):
+        super().__init__(parent, titulo, ancho=ancho, redimensionable=redimensionable, icono=icono_app())
 
 
 class Pila(QStackedWidget):
-    """Páginas que entran deslizándose y con fundido."""
+    """Páginas que entran deslizándose (hacia la derecha o la izquierda) con un fundido."""
 
     def ir_a(self, indice: int):
-        if indice == self.currentIndex():
+        anterior = self.currentIndex()
+        if indice == anterior:
             return
         self.setCurrentIndex(indice)
         nueva = self.currentWidget()
         if not ms(1):
             return
         final = nueva.pos()
+        sentido = 1 if indice > anterior else -1
         efecto = QGraphicsOpacityEffect(nueva)
         nueva.setGraphicsEffect(efecto)
         opacidad = QPropertyAnimation(efecto, b"opacity")
         opacidad.setStartValue(0.0)
         opacidad.setEndValue(1.0)
         mover = QPropertyAnimation(nueva, b"pos")
-        mover.setStartValue(final + QPoint(32, 0))
+        mover.setStartValue(final + QPoint(28 * sentido, 0))
         mover.setEndValue(final)
         grupo = QParallelAnimationGroup(self)
         for a in (opacidad, mover):
@@ -194,8 +292,11 @@ class Pila(QStackedWidget):
             grupo.addAnimation(a)
 
         def fin():
-            nueva.setGraphicsEffect(None)
-            nueva.move(final)
+            try:
+                nueva.setGraphicsEffect(None)
+                nueva.move(final)
+            except RuntimeError:
+                pass
 
         grupo.finished.connect(fin)
         grupo.start(QParallelAnimationGroup.DeletionPolicy.DeleteWhenStopped)
@@ -260,53 +361,95 @@ class Spinner(QWidget):
         p.drawArc(r, -self._angulo * 16, 100 * 16)
 
 
+class _BarraTiempo(QWidget):
+    """Línea fina que se vacía mientras el aviso está en pantalla."""
+
+    def __init__(self, color: str, segundos: float):
+        super().__init__()
+        self.setFixedHeight(3)
+        self.color = QColor(color)
+        self._p = 1.0
+        self._anim = QVariantAnimation(self, startValue=1.0, endValue=0.0, duration=int(segundos * 1000))
+        self._anim.valueChanged.connect(self._fijar)
+        self._anim.start()
+
+    def _fijar(self, v):
+        self._p = float(v)
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        c = QColor(self.color)
+        c.setAlpha(160)
+        p.setBrush(c)
+        p.drawRoundedRect(QRectF(0, 0, self.width() * self._p, self.height()), 1.5, 1.5)
+
+
 class Toast(QFrame):
     """Aviso flotante que entra desde abajo a la derecha y se va solo."""
 
     _activos: list["Toast"] = []
-    ICONOS = {"ok": ("✓", C["ok"]), "error": ("!", C["error"]), "info": ("i", C["info"]), "venta": ("$", C["ok"])}
 
-    def __init__(self, ventana: QWidget, titulo: str, texto: str, tipo: str):
+    def __init__(self, ventana: QWidget, titulo: str, texto: str, tipo: str, segundos: float):
         super().__init__(ventana, objectName="toast")
-        icono, color = self.ICONOS.get(tipo, self.ICONOS["info"])
-        marca = QLabel(icono, objectName="toastIcono")
+        iconos = {"ok": ("✓", C["ok"]), "error": ("!", C["error"]), "info": ("i", C["info"]),
+                  "venta": ("$", C["ok"]), "aviso": ("!", C["aviso"])}
+        icono, color = iconos.get(tipo, iconos["info"])
+        marca = QLabel(icono)
         marca.setAlignment(Qt.AlignmentFlag.AlignCenter)
         marca.setFixedSize(30, 30)
-        marca.setStyleSheet(f"background:{tinte(color, 0.2)}; color:{color}; border-radius:15px; font-weight:800;")
+        marca.setStyleSheet(f"background:{tinte(color, 0.2)}; color:{legible(color)}; border-radius:15px; "
+                            "font-weight:800;")
         textos = QVBoxLayout()
         textos.setSpacing(1)
         t = QLabel(titulo, objectName="toastTitulo")
+        t.setWordWrap(True)
         textos.addWidget(t)
         if texto:
             d = QLabel(texto, objectName="toastTexto")
             d.setWordWrap(True)
             textos.addWidget(d)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(14, 12, 18, 12)
-        lay.setSpacing(12)
-        lay.addWidget(marca, 0, Qt.AlignmentFlag.AlignTop)
-        lay.addLayout(textos, 1)
+        fila_ = QHBoxLayout()
+        fila_.setSpacing(12)
+        fila_.addWidget(marca, 0, Qt.AlignmentFlag.AlignTop)
+        fila_.addLayout(textos, 1)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 18, 10)
+        lay.setSpacing(8)
+        lay.addLayout(fila_)
+        if ms(1):
+            lay.addWidget(_BarraTiempo(color, segundos))
         self.setFixedWidth(340)
         self.adjustSize()
-        sombra = QGraphicsDropShadowEffect(self, blurRadius=32, offset=QPoint(0, 8), color=QColor(0, 0, 0, 160))
-        self.setGraphicsEffect(sombra)
+        sombra = QColor(C["sombra"])
+        sombra.setAlpha(150 if C.get("oscuro", True) else 55)
+        self.setGraphicsEffect(QGraphicsDropShadowEffect(self, blurRadius=32, offset=QPoint(0, 8), color=sombra))
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     @classmethod
-    def mostrar(cls, ventana: QWidget, titulo: str, texto: str = "", tipo: str = "info", segundos: float = 4):
+    def mostrar(cls, ventana: QWidget, titulo: str, texto: str = "", tipo: str = "info", segundos: float = 4.5):
         if ventana is None:
             return
-        t = cls(ventana, titulo, texto, tipo)
+        t = cls(ventana, titulo, texto, tipo, segundos)
         cls._activos.append(t)
         t.show()
         t.raise_()
         cls._recolocar(ventana, nuevo=t)
         QTimer.singleShot(int(segundos * 1000), t._salir)
 
+    def mousePressEvent(self, e):
+        self._salir()
+
     @classmethod
     def _recolocar(cls, ventana, nuevo=None):
-        y = ventana.height() - 24
+        y = ventana.height() - 40
         for t in reversed(cls._activos):
-            if t.parent() is not ventana:
+            try:
+                if t.parent() is not ventana:
+                    continue
+            except RuntimeError:
                 continue
             y -= t.height()
             destino = QPoint(ventana.width() - t.width() - 24, y)
@@ -320,6 +463,8 @@ class Toast(QFrame):
             y -= 10
 
     def _salir(self):
+        if self not in Toast._activos:
+            return
         try:
             ventana = self.parent()
         except RuntimeError:
@@ -328,19 +473,22 @@ class Toast(QFrame):
         def quitar():
             if self in Toast._activos:
                 Toast._activos.remove(self)
-            self.deleteLater()
-            Toast._recolocar(ventana)
+            try:
+                self.deleteLater()
+                Toast._recolocar(ventana)
+            except RuntimeError:
+                pass
 
+        if not ms(1):
+            quitar()
+            return
         anim = QPropertyAnimation(self, b"pos", self)
         anim.setDuration(ms(220))
         anim.setEndValue(self.pos() + QPoint(40, 0))
         anim.finished.connect(quitar)
-        if ms(1):
-            self.setGraphicsEffect(None)
-            fundido(self, 1.0, 0.0, 220)
-            anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-        else:
-            quitar()
+        self.setGraphicsEffect(None)
+        fundido(self, 1.0, 0.0, 220)
+        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
 class PanelDeslizante(QFrame):
@@ -375,7 +523,8 @@ class PanelDeslizante(QFrame):
 
 
 class NavLateral(QWidget):
-    """Menú lateral con indicador que se desliza hasta la opción elegida."""
+    """Menú lateral con secciones; un indicador se desliza hasta la opción elegida.
+    Se puede plegar para mostrar solo los iconos."""
 
     cambiado = Signal(int)
 
@@ -383,31 +532,64 @@ class NavLateral(QWidget):
         super().__init__(parent, objectName="nav")
         self.lay = QVBoxLayout(self)
         self.lay.setContentsMargins(0, 0, 0, 0)
-        self.lay.setSpacing(4)
+        self.lay.setSpacing(2)
         self.grupo = QButtonGroup(self)
         self.grupo.setExclusive(True)
         self.botones: list[QPushButton] = []
+        self.iconos: list[str] = []
         self.textos: list[str] = []
+        self.secciones: list[QLabel] = []
+        self.valores: list[int] = []
+        self.plegado = False
         self.indicador = QFrame(self, objectName="navIndicador")
         self.indicador.setFixedWidth(4)
         self.indicador.hide()
         self._anim = QPropertyAnimation(self.indicador, b"geometry", self)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-    def agregar(self, icono: str, texto: str) -> int:
-        b = QPushButton(f"  {icono}   {texto}", objectName="navBoton")
+    def seccion(self, texto: str):
+        l = QLabel(texto.upper(), objectName="seccionLateral")
+        self.secciones.append(l)
+        self.lay.addWidget(l)
+
+    def agregar(self, icono: str, texto: str, atajo: str = "") -> int:
+        b = QPushButton(objectName="navBoton")
         b.setCheckable(True)
         b.setCursor(Qt.CursorShape.PointingHandCursor)
         indice = len(self.botones)
         self.grupo.addButton(b, indice)
         b.clicked.connect(lambda: self.seleccionar(indice, emitir=True))
+        if atajo:
+            b.setToolTip(f"{texto}  ({atajo})")
         self.botones.append(b)
-        self.textos.append(f"  {icono}   {texto}")
+        self.iconos.append(icono)
+        self.textos.append(texto)
+        self.valores.append(0)
         self.lay.addWidget(b)
+        self._rotular(indice)
         return indice
 
+    def _rotular(self, i: int):
+        insignia = f"   ● {self.valores[i]}" if self.valores[i] else ""
+        if self.plegado:
+            self.botones[i].setText(f" {self.iconos[i]}" + (" •" if self.valores[i] else ""))
+            self.botones[i].setToolTip(self.textos[i])
+        else:
+            self.botones[i].setText(f"  {self.iconos[i]}   {self.textos[i]}{insignia}")
+
     def insignia(self, indice: int, valor: int):
-        self.botones[indice].setText(self.textos[indice] + (f"   ● {valor}" if valor else ""))
+        self.valores[indice] = valor
+        self._rotular(indice)
+
+    def plegar(self, plegado: bool):
+        self.plegado = plegado
+        for l in self.secciones:
+            l.setVisible(not plegado)
+        for i in range(len(self.botones)):
+            self._rotular(i)
+        actual = self.grupo.checkedId()
+        if actual >= 0:
+            QTimer.singleShot(0, lambda: self._reajustar(actual))
 
     def seleccionar(self, indice: int, emitir=False):
         b = self.botones[indice]
@@ -446,32 +628,40 @@ class TarjetaKPI(QFrame):
         self.color = color
         self.valor = ContadorAnimado(formato)
         self.valor.setObjectName("kpiValor")
-        self.valor.setStyleSheet(f"color:{color}")
+        self.valor.setStyleSheet(f"color:{legible(color)}")
         self.sub = QLabel(ayuda, objectName="kpiSub")
         self.sub.setWordWrap(True)
         cab = QLabel(titulo.upper(), objectName="kpiTitulo")
+        cab.setWordWrap(True)
         barra = QFrame(objectName="kpiBarra")
         barra.setFixedHeight(3)
         barra.setStyleSheet(f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 {color}, stop:1 transparent);"
                             "border-radius:1px;")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(4)
+        lay.setSpacing(ESP_XS)
         lay.addWidget(barra)
-        lay.addSpacing(4)
+        lay.addSpacing(ESP_XS)
         lay.addWidget(cab)
         lay.addWidget(self.valor)
         lay.addWidget(self.sub)
-        self._sombra = QGraphicsDropShadowEffect(self, blurRadius=0, offset=QPoint(0, 6),
-                                                 color=QColor(color).darker(150))
+        sombra = QColor(color).darker(150)
+        if not C.get("oscuro", True):
+            sombra.setAlpha(90)
+        self._sombra = QGraphicsDropShadowEffect(self, blurRadius=0, offset=QPoint(0, 0), color=sombra)
         self.setGraphicsEffect(self._sombra)
         self._brillo = QVariantAnimation(self, duration=220)
-        self._brillo.valueChanged.connect(lambda v: self._sombra.setBlurRadius(float(v)))
+        self._brillo.valueChanged.connect(self._fijar_brillo)
+
+    def _fijar_brillo(self, v):
+        # en reposo no hay sombra; al pasar el ratón crece y baja un poco
+        self._sombra.setBlurRadius(float(v))
+        self._sombra.setOffset(0, float(v) / 26 * 6)
 
     def _animar_brillo(self, hasta):
         self._brillo.stop()
         if not ms(1):
-            self._sombra.setBlurRadius(hasta)
+            self._fijar_brillo(hasta)
             return
         self._brillo.setStartValue(self._sombra.blurRadius())
         self._brillo.setEndValue(hasta)
@@ -487,12 +677,13 @@ class TarjetaKPI(QFrame):
 
 
 class GraficoBarras(QWidget):
-    """Barras apiladas por plataforma que crecen al aparecer. Muestra el detalle al pasar el ratón."""
+    """Barras apiladas por serie que crecen al aparecer. Muestra el detalle al pasar el ratón."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, unidad: str = "", sin_datos: str = "Sin ventas"):
         super().__init__(parent)
         self.setMinimumHeight(190)
         self.setMouseTracking(True)
+        self.unidad, self.sin_datos = unidad, sin_datos
         self.etiquetas: list[str] = []
         self.series: dict[str, list[float]] = {}
         self.colores: dict[str, str] = {}
@@ -523,7 +714,7 @@ class GraficoBarras(QWidget):
         return [sum(s[i] for s in self.series.values()) for i in range(n)]
 
     def _geometria(self):
-        izq, der, arriba, abajo = 34, 8, 10, 26
+        izq, der, arriba, abajo = 38, 8, 10, 26
         ancho = max(1, self.width() - izq - der)
         alto = max(1, self.height() - arriba - abajo)
         return izq, arriba, ancho, alto
@@ -535,7 +726,6 @@ class GraficoBarras(QWidget):
         totales = self._totales()
         maximo = max(totales + [1])
         maximo = max(3, -(-maximo // 3) * 3)    # múltiplo de 3: las líneas guía caen en números enteros
-        # líneas guía
         p.setFont(QFont(self.font().family(), 8))
         for i in range(4):
             y = arriba + alto - alto * i / 3
@@ -550,14 +740,16 @@ class GraficoBarras(QWidget):
         paso = ancho / n
         barra = max(3.0, paso * 0.62)
         curva = QEasingCurve(QEasingCurve.Type.OutBack)
-        for i, etiqueta in enumerate(self.etiquetas):
+        resalte = QColor(C["texto"])
+        resalte.setAlpha(12)
+        for i, etiqueta_ in enumerate(self.etiquetas):
             # cada barra arranca un poco después que la anterior (efecto "ola")
             propio = min(1.0, max(0.0, self._progreso * 1.6 - i / max(1, n) * 0.6))
             crecimiento = curva.valueForProgress(propio)
             x = izq + i * paso + (paso - barra) / 2
             base = arriba + alto
             if i == self._resaltada:
-                p.fillRect(QRectF(izq + i * paso, arriba, paso, alto), QColor(255, 255, 255, 10))
+                p.fillRect(QRectF(izq + i * paso, arriba, paso, alto), resalte)
             for clave, valores in self.series.items():
                 h = alto * valores[i] / maximo * crecimiento
                 if h <= 0:
@@ -573,7 +765,7 @@ class GraficoBarras(QWidget):
             if n <= 10 or i % max(1, n // 6) == 0 or i == n - 1:
                 p.setPen(QColor(C["tenue"]))
                 p.drawText(QRectF(izq + i * paso - 20, arriba + alto + 6, paso + 40, 16),
-                           Qt.AlignmentFlag.AlignHCenter, etiqueta)
+                           Qt.AlignmentFlag.AlignHCenter, etiqueta_)
 
     def mouseMoveEvent(self, e):
         izq, _, ancho, _ = self._geometria()
@@ -588,15 +780,77 @@ class GraficoBarras(QWidget):
             for clave, valores in self.series.items():
                 if valores[i]:
                     lineas.append(f"<span style='color:{self.colores.get(clave)}'>●</span> "
-                                  f"{self.nombres.get(clave, clave)}: {valores[i]:g}")
+                                  f"{self.nombres.get(clave, clave)}: {valores[i]:g}{self.unidad}")
             if len(lineas) == 1:
-                lineas.append("Sin ventas")
+                lineas.append(self.sin_datos)
             QToolTip.showText(e.globalPosition().toPoint(), "<br>".join(lineas), self)
 
     def leaveEvent(self, e):
         self._resaltada = -1
         self.update()
         super().leaveEvent(e)
+
+
+class GraficoDona(QWidget):
+    """Gráfico circular (dona) que se dibuja girando; el total va en el centro."""
+
+    def __init__(self, tam: int = 150, texto_centro: str = "total"):
+        super().__init__()
+        self.setFixedSize(tam, tam)
+        self.texto_centro = texto_centro
+        self.partes: list[tuple[str, float, str]] = []
+        self._p = 1.0
+        self._anim = QVariantAnimation(self, startValue=0.0, endValue=1.0)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.valueChanged.connect(self._fijar)
+
+    def _fijar(self, v):
+        self._p = float(v)
+        self.update()
+
+    def fijar(self, partes: list[tuple[str, float, str]]):
+        """partes = [(nombre, valor, color), …]"""
+        cambio = partes != self.partes
+        self.partes = partes
+        tip = "<br>".join(f"<span style='color:{c}'>●</span> {n}: <b>{v:g}</b>" for n, v, c in partes if v)
+        self.setToolTip(tip)
+        if cambio and ms(1):
+            self._anim.stop()
+            self._anim.setDuration(ms(1000))
+            self._anim.start()
+        else:
+            self._p = 1.0
+            self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        grosor = self.width() * 0.13
+        r = QRectF(grosor / 2 + 2, grosor / 2 + 2, self.width() - grosor - 4, self.height() - grosor - 4)
+        p.setPen(QPen(QColor(C["borde"]), grosor))
+        p.drawEllipse(r)
+        total = sum(v for _, v, _ in self.partes)
+        inicio = 90.0
+        if total:
+            for _, valor, color in self.partes:
+                arco = -360.0 * valor / total * self._p
+                if valor:
+                    p.setPen(QPen(QColor(color), grosor, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+                    p.drawArc(r, int(inicio * 16), int(arco * 16))
+                inicio += arco
+        f = QFont(self.font())
+        f.setPixelSize(int(self.height() * 0.2))
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor(C["titulo"]))
+        p.drawText(QRectF(0, -8, self.width(), self.height()), Qt.AlignmentFlag.AlignCenter,
+                   f"{round(total * self._p):,}")
+        f.setPixelSize(max(9, int(self.height() * 0.08)))
+        f.setBold(False)
+        p.setFont(f)
+        p.setPen(QColor(C["tenue"]))
+        p.drawText(QRectF(0, self.height() * 0.16, self.width(), self.height()), Qt.AlignmentFlag.AlignCenter,
+                   self.texto_centro)
 
 
 class DelegadoPildora(QStyledItemDelegate):
@@ -609,7 +863,7 @@ class DelegadoPildora(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         if opcion.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(opcion.rect, QColor("#243156"))
+            painter.fillRect(opcion.rect, QColor(C["seleccion"]))
         elif indice.row() % 2:
             painter.fillRect(opcion.rect, QColor(C["panel2"]))
         texto = str(indice.data(Qt.ItemDataRole.DisplayRole) or "")
@@ -617,7 +871,7 @@ class DelegadoPildora(QStyledItemDelegate):
         f.setPointSizeF(max(7.5, f.pointSizeF() - 1))
         f.setBold(True)
         painter.setFont(f)
-        ancho = painter.fontMetrics().horizontalAdvance(texto) + 26
+        ancho = min(painter.fontMetrics().horizontalAdvance(texto) + 26, opcion.rect.width() - 12)
         alto = 22
         r = QRectF(opcion.rect.x() + 8, opcion.rect.center().y() - alto / 2 + 1, ancho, alto)
         base = QColor(color)
@@ -628,8 +882,9 @@ class DelegadoPildora(QStyledItemDelegate):
         painter.drawRoundedRect(r, alto / 2, alto / 2)
         painter.setBrush(base)
         painter.drawEllipse(QRectF(r.x() + 9, r.center().y() - 3, 6, 6))
-        painter.setPen(base.lighter(115))
-        painter.drawText(r.adjusted(18, 0, -6, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, texto)
+        painter.setPen(QColor(legible(color)).lighter(115 if C.get("oscuro", True) else 100))
+        painter.drawText(r.adjusted(18, 0, -6, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                         painter.fontMetrics().elidedText(texto, Qt.TextElideMode.ElideRight, int(r.width() - 24)))
         painter.restore()
 
 
@@ -640,22 +895,28 @@ class EstadoVacio(QWidget):
         super().__init__(objectName="vacio")
         lay = QVBoxLayout(self)
         lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.setSpacing(8)
-        i = QLabel(icono, objectName="vacioIcono")
-        i.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.setSpacing(ESP_SM)
+        self.icono = QLabel(icono, objectName="vacioIcono")
+        self.icono.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.titulo = QLabel(titulo, objectName="vacioTitulo")
         self.titulo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.texto = QLabel(texto, objectName="vacioTexto")
         self.texto.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.texto.setWordWrap(True)
         self.texto.setMaximumWidth(460)
-        lay.addWidget(i)
+        lay.addWidget(self.icono)
         lay.addWidget(self.titulo)
         lay.addWidget(self.texto, 0, Qt.AlignmentFlag.AlignHCenter)
         self.boton = boton(boton_texto, "primario") if boton_texto else None
         if self.boton:
-            lay.addSpacing(8)
+            lay.addSpacing(ESP_SM)
             lay.addWidget(self.boton, 0, Qt.AlignmentFlag.AlignHCenter)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if ms(1):
+            QTimer.singleShot(0, lambda: self.isVisible() and entrada_escalonada([self.icono, self.titulo, self.texto],
+                                                                                 12, 60, 420))
 
 
 class OpcionPlataforma(QFrame):
@@ -667,7 +928,6 @@ class OpcionPlataforma(QFrame):
         super().__init__(objectName="opcion")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.marca = QLabel("○")
-        self.marca.setStyleSheet(f"font-size:18px; color:{C['tenue']};")
         textos = QVBoxLayout()
         textos.setSpacing(3)
         textos.addWidget(QLabel(titulo, objectName="tituloTarjeta"))
@@ -675,9 +935,9 @@ class OpcionPlataforma(QFrame):
         d.setWordWrap(True)
         textos.addWidget(d)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(18, 16, 18, 16)
-        lay.setSpacing(16)
-        lay.addWidget(insignia_icono(icono, color), 0, Qt.AlignmentFlag.AlignTop)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(ESP_MD)
+        lay.addWidget(insignia_icono(icono, color, 46), 0, Qt.AlignmentFlag.AlignTop)
         lay.addLayout(textos, 1)
         lay.addWidget(self.marca, 0, Qt.AlignmentFlag.AlignTop)
         self.color = color
@@ -724,8 +984,99 @@ class Chips(QWidget):
     def actual(self) -> str:
         return self.claves[max(0, self.grupo.checkedId())]
 
+    def elegir(self, clave: str):
+        if clave in self.claves:
+            self.grupo.button(self.claves.index(clave)).setChecked(True)
+
     def texto(self, clave: str, texto: str):
         self.grupo.button(self.claves.index(clave)).setText(texto)
+
+
+class TarjetaTema(QFrame):
+    """Vista previa de un tema (mini ventana con sus colores). Al elegirla se marca con una palomita."""
+
+    clic = Signal(str)
+
+    def __init__(self, clave: str, tema: dict):
+        super().__init__(objectName="temaTarjeta")
+        self.clave, self.tema = clave, tema
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(188, 150)
+        self._marca = 0.0
+        self._anim = QVariantAnimation(self, duration=ms(320) or 1)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        self._anim.valueChanged.connect(self._fijar)
+        self.setToolTip(tema["descripcion"])
+        elevar_al_pasar(self, tema["acento"])
+
+    def _fijar(self, v):
+        self._marca = float(v)
+        self.update()
+
+    def elegir(self, elegido: bool):
+        self.setProperty("elegido", elegido)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        destino = 1.0 if elegido else 0.0
+        if ms(1) and self.isVisible():
+            self._anim.stop()
+            self._anim.setStartValue(self._marca)
+            self._anim.setEndValue(destino)
+            self._anim.start()
+        else:
+            self._fijar(destino)
+
+    def mousePressEvent(self, e):
+        self.clic.emit(self.clave)
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        T = self.tema
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(10, 10, self.width() - 20, 92)
+        forma = QPainterPath()
+        forma.addRoundedRect(r, 8, 8)
+        p.fillPath(forma, QColor(T["fondo"]))
+        p.setPen(QPen(QColor(T["borde2"]), 1))
+        p.drawPath(forma)
+        lateral = QRectF(r.left() + 1, r.top() + 1, 40, r.height() - 2)
+        p.fillRect(lateral, QColor(T["panel"]))
+        for i in range(4):
+            c = QColor(T["acento"] if i == 0 else T["borde2"])
+            p.fillRect(QRectF(lateral.left() + 8, lateral.top() + 12 + i * 14, 24 if i else 20, 5), c)
+        for i, color in enumerate((T["acento"], T["ok"], T["info"])):
+            caja = QRectF(r.left() + 50 + i * 40, r.top() + 12, 34, 30)
+            camino = QPainterPath()
+            camino.addRoundedRect(caja, 4, 4)
+            p.fillPath(camino, QColor(T["panel"]))
+            p.fillRect(QRectF(caja.left() + 5, caja.top() + 18, 18, 5), QColor(color))
+        for i in range(5):
+            alto = 10 + (i * 7) % 26
+            p.fillRect(QRectF(r.left() + 52 + i * 22, r.bottom() - 8 - alto, 12, alto), QColor(T["acento2"]))
+        p.setPen(QColor(C["titulo"]))
+        f = QFont(self.font())
+        f.setBold(True)
+        f.setPointSizeF(10)
+        p.setFont(f)
+        p.drawText(QRectF(12, 108, self.width() - 40, 20), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   T["nombre"])
+        f.setBold(False)
+        f.setPointSizeF(8)
+        p.setFont(f)
+        p.setPen(QColor(C["tenue"]))
+        p.drawText(QRectF(12, 126, self.width() - 20, 16), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                   "Oscuro" if T["oscuro"] else "Claro")
+        if self._marca > 0:
+            c = QPointF(self.width() - 24, 118)
+            radio = 10 * self._marca
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(C["acento"]))
+            p.drawEllipse(c, radio, radio)
+            if self._marca > 0.5:
+                p.setPen(QPen(QColor(C["sobre_acento"]), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                p.drawLine(QPointF(c.x() - 4, c.y()), QPointF(c.x() - 1, c.y() + 3))
+                p.drawLine(QPointF(c.x() - 1, c.y() + 3), QPointF(c.x() + 4, c.y() - 3))
 
 
 # ============================================================ más animaciones
@@ -757,7 +1108,9 @@ class _Onda(QWidget):
         forma.addRoundedRect(QRectF(self.rect()), self.radio_borde, self.radio_borde)
         p.setClipPath(forma)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(255, 255, 255, int(95 * (1 - self._p))))
+        luz = QColor("#ffffff" if C.get("oscuro", True) else C["acento"])
+        luz.setAlpha(int((95 if C.get("oscuro", True) else 50) * (1 - self._p)))
+        p.setBrush(luz)
         r = self._max * (0.2 + 0.8 * self._p)
         p.drawEllipse(self.centro, r, r)
 
@@ -803,6 +1156,7 @@ class _Elevar(QObject):
             destino = 1.0 if ev.type() == QEvent.Type.Enter else 0.0
             self.anim.stop()
             if ms(1):
+                self.anim.setDuration(ms(260))
                 self.anim.setStartValue(self._v)
                 self.anim.setEndValue(destino)
                 self.anim.start()
@@ -813,7 +1167,7 @@ class _Elevar(QObject):
 
 def elevar_al_pasar(widget: QWidget, color: str = "#000000"):
     c = QColor(color)
-    c.setAlpha(150)
+    c.setAlpha(150 if C.get("oscuro", True) else 80)
     _Elevar(widget, c)
 
 
@@ -829,15 +1183,15 @@ def entrada_escalonada(widgets: list[QWidget], desplazamiento: int = 22, retraso
         anim.setStartValue(final + QPoint(0, desplazamiento))
         anim.setEndValue(final)
         anim.setEasingCurve(QEasingCurve.Type.OutBack)
-        QTimer.singleShot(i * retraso, anim.start)
+        QTimer.singleShot(int(i * retraso * ANIM["factor"]), anim.start)
 
 
-def latido(widget: QWidget, color: str = "#7c5cff", veces: int = 3):
+def latido(widget: QWidget, color: str | None = None, veces: int = 3):
     """Destello suave para llamar la atención (por ejemplo, actividad nueva)."""
     if not ms(1):
         return
     original = widget.styleSheet()
-    c = QColor(color)
+    c = QColor(color or C["acento"])
     anim = QVariantAnimation(widget, startValue=0.0, endValue=1.0, duration=900)
     anim.setLoopCount(veces)
 
@@ -852,9 +1206,9 @@ def latido(widget: QWidget, color: str = "#7c5cff", veces: int = 3):
 
 
 class BloqueCarga(QWidget):
-    """Rectángulo gris con un brillo que lo recorre: indica que los datos están cargando."""
+    """Rectángulo con un brillo que lo recorre: indica que los datos están cargando."""
 
-    def __init__(self, alto: int = 0, radio: int = 14):
+    def __init__(self, alto: int = 0, radio: int = RADIO_LG):
         super().__init__()
         if alto:
             self.setFixedHeight(alto)
@@ -882,7 +1236,8 @@ class BloqueCarga(QWidget):
         r = QRectF(self.rect())
         grad = QLinearGradient(r.left(), 0, r.right(), 0)
         centro = -0.3 + self._fase * 1.6
-        base, luz = QColor(C["panel"]), QColor(C["panel2"]).lighter(125)
+        base = QColor(C["panel"])
+        luz = QColor(C["panel2"]).lighter(125) if C.get("oscuro", True) else QColor(C["panel2"]).darker(104)
         grad.setColorAt(0, base)
         for t, color in ((centro - 0.25, base), (centro, luz), (centro + 0.25, base)):
             if 0 <= t <= 1:
@@ -913,6 +1268,7 @@ class Interruptor(QCheckBox):
         destino = 1.0 if activo else 0.0
         self._anim.stop()
         if self.isVisible() and ms(1):
+            self._anim.setDuration(ms(200))
             self._anim.setStartValue(self._pos)
             self._anim.setEndValue(destino)
             self._anim.start()
@@ -929,16 +1285,15 @@ class Interruptor(QCheckBox):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         pista = QRectF(1, (self.height() - 24) / 2, 44, 24)
-        apagado, encendido = QColor(C["borde2"]), QColor(C["acento"])
-        color = QColor(int(apagado.red() + (encendido.red() - apagado.red()) * min(1, self._pos)),
-                       int(apagado.green() + (encendido.green() - apagado.green()) * min(1, self._pos)),
-                       int(apagado.blue() + (encendido.blue() - apagado.blue()) * min(1, self._pos)))
+        color = mezclar(C["borde2"], C["acento"], min(1.0, self._pos))
+        if not self.isEnabled():
+            color.setAlpha(110)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(color)
         p.drawRoundedRect(pista, 12, 12)
-        p.setBrush(QColor("white"))
+        p.setBrush(QColor("#ffffff"))
         p.drawEllipse(QPointF(pista.left() + 12 + self._pos * 20, pista.center().y()), 9, 9)
-        p.setPen(QColor(C["texto"]))
+        p.setPen(QColor(C["texto"] if self.isEnabled() else C["tenue"]))
         p.drawText(QRectF(pista.right() + 10, 0, self.width(), self.height()),
                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text())
 
@@ -946,10 +1301,10 @@ class Interruptor(QCheckBox):
 class MarcaExito(QWidget):
     """Círculo que se dibuja y una palomita (✓) que aparece trazo a trazo."""
 
-    def __init__(self, color: str = "#22c55e", tam: int = 60):
+    def __init__(self, color: str | None = None, tam: int = 60):
         super().__init__()
         self.setFixedSize(tam, tam)
-        self.color, self._p = QColor(color), 0.0 if ms(1) else 1.0
+        self.color, self._p = QColor(color or C["ok"]), 0.0 if ms(1) else 1.0
         self._anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=ms(900))
         self._anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self._anim.valueChanged.connect(self._avanzar)
@@ -992,9 +1347,9 @@ class MarcaExito(QWidget):
 class Aurora(QFrame):
     """Marco con luces de color que se mueven lentamente detrás del contenido."""
 
-    def __init__(self, colores=("#7c5cff", "#4f8cff", "#f472b6"), objectName="heroe"):
+    def __init__(self, colores=None, objectName="heroe"):
         super().__init__(objectName=objectName)
-        self.colores = [QColor(c) for c in colores]
+        self.colores = [QColor(c) for c in (colores or (C["acento"], C["acento2"], C["oro"]))]
         self._fase = 0.0
         self._anim = QVariantAnimation(self, startValue=0.0, endValue=2 * math.pi, duration=14000)
         self._anim.setLoopCount(-1)
@@ -1018,15 +1373,16 @@ class Aurora(QFrame):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         forma = QPainterPath()
-        forma.addRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 20, 20)
+        forma.addRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), RADIO_XL, RADIO_XL)
         p.setClipPath(forma)
         w, h = self.width(), self.height()
+        alfa = 55 if C.get("oscuro", True) else 38
         for i, color in enumerate(self.colores):
             fase = self._fase + i * 2.1
             centro = QPointF(w * (0.5 + 0.38 * math.cos(fase * (1 + i * 0.3))), h * (0.5 + 0.45 * math.sin(fase)))
             radial = QRadialGradient(centro, max(w, h) * 0.45)
             c1, c2 = QColor(color), QColor(color)
-            c1.setAlpha(55)
+            c1.setAlpha(alfa)
             c2.setAlpha(0)
             radial.setColorAt(0, c1)
             radial.setColorAt(1, c2)
@@ -1034,18 +1390,19 @@ class Aurora(QFrame):
 
 
 class Bienvenida(QWidget):
-    """Pantalla de carga al abrir el programa: el logo aparece con un rebote y la barra se llena."""
+    """Pantalla de carga: el icono aparece con un rebote, luego la marca Cinema Productions y la barra."""
 
     def __init__(self, titulo: str, subtitulo: str):
         super().__init__(None, Qt.WindowType.FramelessWindowHint | Qt.WindowType.SplashScreen
                          | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(480, 300)
+        self.setFixedSize(520, 330)
         self.titulo, self.subtitulo = titulo, subtitulo
         self._intro, self._barra = (0.0, 0.0) if ms(1) else (1.0, 0.0)
-        self.logo = icono_app().pixmap(160, 160)
-        self._a_intro = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=ms(650))
-        self._a_intro.setEasingCurve(QEasingCurve.Type.OutBack)
+        self.logo = icono_cinema(192)
+        self.marca = logo_cinema(16, "#ffffff")
+        self._a_intro = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=ms(750))
+        self._a_intro.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._a_intro.valueChanged.connect(lambda v: self._fijar("_intro", v))
         self._a_barra = QVariantAnimation(self, duration=ms(450))
         self._a_barra.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -1067,7 +1424,7 @@ class Bienvenida(QWidget):
             return
         bucle = QEventLoop()
         self._a_intro.finished.connect(bucle.quit)
-        QTimer.singleShot(1500, bucle.quit)          # por si acaso
+        QTimer.singleShot(1600, bucle.quit)          # por si acaso
         self._a_intro.start()
         bucle.exec()
 
@@ -1105,44 +1462,59 @@ class Bienvenida(QWidget):
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         r = QRectF(self.rect()).adjusted(6, 6, -6, -6)
         fondo = QLinearGradient(r.topLeft(), r.bottomRight())
-        fondo.setColorAt(0, QColor("#1d1840"))
-        fondo.setColorAt(1, QColor("#0f1e38"))
-        p.setPen(QPen(QColor(C["borde2"]), 1))
+        fondo.setColorAt(0, QColor("#1a0a0d"))
+        fondo.setColorAt(1, QColor("#08080b"))
+        p.setPen(QPen(QColor("#33333c"), 1))
         p.setBrush(fondo)
         p.drawRoundedRect(r, 22, 22)
-        # logo con rebote
-        lado = 96 * max(0.0, self._intro)
+        luz = QRadialGradient(QPointF(r.center().x(), 100), 190)
+        rojo = QColor("#e50914")
+        rojo.setAlpha(int(70 * self._intro))
+        luz.setColorAt(0, rojo)
+        rojo.setAlpha(0)
+        luz.setColorAt(1, rojo)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(luz)
+        p.drawRoundedRect(r, 22, 22)
+        # icono con rebote (escala con sobrepaso)
+        escala = QEasingCurve(QEasingCurve.Type.OutBack).valueForProgress(min(1.0, self._intro / 0.7))
+        lado = 92 * max(0.0, escala)
         if lado > 1:
-            p.drawPixmap(QRectF(r.center().x() - lado / 2, 58 + (96 - lado) / 2, lado, lado), self.logo,
+            p.drawPixmap(QRectF(r.center().x() - lado / 2, 54 + (92 - lado) / 2, lado, lado), self.logo,
                          QRectF(self.logo.rect()))
-        opacidad = max(0.0, min(1.0, (self._intro - 0.3) / 0.7))
+        opacidad = max(0.0, min(1.0, (self._intro - 0.35) / 0.65))
         p.setOpacity(opacidad)
-        f = QFont(self.font())
+        f = QFont()
+        f.setFamilies(LETRA)
         f.setPointSizeF(17)
         f.setBold(True)
         p.setFont(f)
-        p.setPen(QColor("white"))
-        p.drawText(QRectF(r.left(), 168, r.width(), 32), Qt.AlignmentFlag.AlignCenter, self.titulo)
+        p.setPen(QColor("#ffffff"))
+        p.drawText(QRectF(r.left(), 160, r.width(), 32), Qt.AlignmentFlag.AlignCenter, self.titulo)
         f.setPointSizeF(10)
         f.setBold(False)
         p.setFont(f)
-        p.setPen(QColor(C["suave"]))
-        p.drawText(QRectF(r.left(), 200, r.width(), 22), Qt.AlignmentFlag.AlignCenter, self.subtitulo)
+        p.setPen(QColor("#a1a1aa"))
+        p.drawText(QRectF(r.left(), 192, r.width(), 22), Qt.AlignmentFlag.AlignCenter, self.subtitulo)
+        if not self.marca.isNull():
+            ancho = self.marca.width() / self.marca.devicePixelRatio()
+            alto = self.marca.height() / self.marca.devicePixelRatio()
+            p.setOpacity(opacidad * 0.85)
+            p.drawPixmap(QRectF(r.center().x() - ancho / 2, 228, ancho, alto), self.marca, QRectF(self.marca.rect()))
         p.setOpacity(1.0)
         # barra de progreso
-        pista = QRectF(r.left() + 70, r.bottom() - 46, r.width() - 140, 6)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(255, 255, 255, 30))
-        p.drawRoundedRect(pista, 3, 3)
+        pista = QRectF(r.left() + 80, r.bottom() - 40, r.width() - 160, 5)
+        p.setBrush(QColor(255, 255, 255, 28))
+        p.drawRoundedRect(pista, 2.5, 2.5)
         lleno = QRectF(pista.left(), pista.top(), pista.width() * self._barra, pista.height())
         grad = QLinearGradient(lleno.topLeft(), lleno.topRight())
-        grad.setColorAt(0, QColor(C["acento"]))
-        grad.setColorAt(1, QColor(C["acento2"]))
+        grad.setColorAt(0, QColor("#e50914"))
+        grad.setColorAt(1, QColor("#f5c518"))
         p.setBrush(grad)
-        p.drawRoundedRect(lleno, 3, 3)
+        p.drawRoundedRect(lleno, 2.5, 2.5)
 
 
-# ============================================================ helpers
+# ============================================================ ayudas
 
 def fuente_mono(puntos: float = -1, negrita=False) -> QFont:
     f = QFont()
@@ -1196,25 +1568,46 @@ def fila(*widgets, espacio=8) -> QHBoxLayout:
     return lay
 
 
-def tabla(columnas: list[str], anchos: list[int] | None = None, pildoras: tuple[int, ...] = ()) -> QTableWidget:
+class CeldaOrdenable(QTableWidgetItem):
+    """Celda que se ordena por un valor propio (números, fechas) en lugar del texto."""
+
+    def __lt__(self, otra):
+        a, b = self.data(ROL_ORDEN), otra.data(ROL_ORDEN)
+        if a is not None and b is not None:
+            try:
+                return a < b
+            except TypeError:
+                pass
+        return super().__lt__(otra)
+
+
+def tabla(columnas: list[str], anchos: list[int] | None = None, pildoras: tuple[int, ...] = (),
+          ordenable: bool = True) -> QTableWidget:
     t = QTableWidget(0, len(columnas))
     t.setHorizontalHeaderLabels(columnas)
     t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
     t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
     t.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     t.verticalHeader().setVisible(False)
-    t.verticalHeader().setDefaultSectionSize(42)
+    t.verticalHeader().setDefaultSectionSize(TABLA["alto"])
     t.setShowGrid(False)
     t.setAlternatingRowColors(True)
     t.setWordWrap(False)
     t.setMouseTracking(True)
     t.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     t.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+    t.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
     h = t.horizontalHeader()
     h.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
     h.setStretchLastSection(True)
     h.setHighlightSections(False)
     h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    t.setProperty("ordenable", ordenable)
+    if ordenable:
+        h.setSectionsClickable(True)
+        h.setSortIndicatorShown(True)
+        h.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+        h.sectionClicked.connect(lambda c: t.sortItems(c, h.sortIndicatorOrder()))
     for i, ancho in enumerate(anchos or []):
         t.setColumnWidth(i, ancho)
     delegado = DelegadoPildora(t)
@@ -1224,10 +1617,10 @@ def tabla(columnas: list[str], anchos: list[int] | None = None, pildoras: tuple[
 
 
 def celda(texto, color: str | None = None, dato=None, negrita=False, mono=False, pildora: str | None = None,
-          tip: str = "") -> QTableWidgetItem:
-    it = QTableWidgetItem(str(texto) if texto not in (None, "") else "—")
+          tip: str = "", orden=None) -> QTableWidgetItem:
+    it = CeldaOrdenable(str(texto) if texto not in (None, "") else "—")
     if color:
-        it.setForeground(QColor(color))
+        it.setForeground(QColor(legible(color)))
     if negrita or mono:
         f = fuente_mono() if mono else QFont(QApplication.font())
         f.setBold(negrita)
@@ -1238,21 +1631,28 @@ def celda(texto, color: str | None = None, dato=None, negrita=False, mono=False,
         it.setData(ROL_COLOR, pildora)
     if tip:
         it.setToolTip(tip)
+    if orden is not None:
+        it.setData(ROL_ORDEN, orden)
     return it
 
 
 def llenar_tabla(t: QTableWidget, filas: list[list[QTableWidgetItem]]):
-    """Rellena la tabla conservando la fila seleccionada (por el dato de la columna 0)."""
+    """Rellena la tabla conservando la fila seleccionada (por el dato de la columna 0) y el orden elegido."""
     sel = dato_seleccionado(t)
+    h = t.horizontalHeader()
+    columna, orden = h.sortIndicatorSection(), h.sortIndicatorOrder()
     t.setUpdatesEnabled(False)
+    t.setSortingEnabled(False)
     t.setRowCount(len(filas))
     for r, celdas in enumerate(filas):
         for c, it in enumerate(celdas):
             t.setItem(r, c, it)
+    if t.property("ordenable") and 0 <= columna < t.columnCount():
+        t.sortItems(columna, orden)
     t.clearSelection()
     if sel is not None:
         for r in range(t.rowCount()):
-            if t.item(r, 0).data(ROL_DATO) == sel:
+            if t.item(r, 0) and t.item(r, 0).data(ROL_DATO) == sel:
                 t.selectRow(r)
                 break
     t.setUpdatesEnabled(True)
@@ -1261,151 +1661,3 @@ def llenar_tabla(t: QTableWidget, filas: list[list[QTableWidgetItem]]):
 def dato_seleccionado(t: QTableWidget):
     filas = t.selectionModel().selectedRows() if t.selectionModel() else []
     return t.item(filas[0].row(), 0).data(ROL_DATO) if filas and t.item(filas[0].row(), 0) else None
-
-
-def icono_app() -> QIcon:
-    pm = QPixmap(256, 256)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.scale(4, 4)   # cuadrícula de 64x64
-    grad = QLinearGradient(0, 0, 64, 64)
-    grad.setColorAt(0, QColor(C["acento"]))
-    grad.setColorAt(1, QColor(C["acento2"]))
-    p.setBrush(grad)
-    p.setPen(Qt.PenStyle.NoPen)
-    p.drawRoundedRect(0, 0, 64, 64, 15, 15)
-    p.setBrush(QColor("white"))
-    p.drawEllipse(10, 18, 26, 26)
-    p.drawRect(30, 27, 26, 8)
-    p.drawRect(46, 35, 6, 9)
-    p.drawRect(38, 35, 5, 6)
-    p.setBrush(QColor(C["acento"]))
-    p.drawEllipse(17, 25, 12, 12)
-    p.end()
-    return QIcon(pm)
-
-
-QSS = """
-* { font-family: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text", "Inter", "Helvetica Neue", "Noto Sans",
-    sans-serif; font-size: 13px; }
-QMainWindow, QDialog { background: %(fondo)s; }
-QWidget { color: %(texto)s; }
-QWidget#raiz, QWidget#pagina, QStackedWidget, QWidget#vacio { background: %(fondo)s; }
-QLabel { background: transparent; }
-QToolTip { background: %(panel2)s; color: %(texto)s; border: 1px solid %(borde2)s; padding: 7px 9px;
-           border-radius: 8px; }
-
-/* ---- barra lateral ---- */
-QFrame#lateral { background: %(panel)s; border-right: 1px solid %(borde)s; }
-QLabel#marca { font-size: 16px; font-weight: 800; color: #ffffff; }
-QLabel#marcaSub { color: %(suave)s; font-size: 11px; }
-QWidget#nav { background: transparent; }
-QPushButton#navBoton { text-align: left; padding: 10px 12px; border: none; border-radius: 10px;
-                       color: %(suave)s; font-weight: 600; background: transparent; }
-QPushButton#navBoton:hover { background: %(panel2)s; color: %(texto)s; }
-QPushButton#navBoton:checked { background: #1f1a3d; color: #ffffff; }
-QFrame#navIndicador { background: %(acento)s; border-radius: 2px; }
-QLabel#seccionLateral { color: %(tenue)s; font-size: 10px; font-weight: 700;
-                        padding: 10px 12px 2px 12px; }
-QPushButton#plataformaChip { text-align: left; background: %(panel2)s; border: 1px solid %(borde)s;
-                             border-radius: 10px; padding: 8px 10px; color: %(texto)s; font-weight: 600; }
-QPushButton#plataformaChip:hover { border-color: %(borde2)s; }
-
-/* ---- cabecera ---- */
-QLabel#tituloPagina { font-size: 24px; font-weight: 800; color: #ffffff; }
-QLabel#subtitulo { color: %(suave)s; }
-QLineEdit#buscar { background: %(panel)s; border: 1px solid %(borde)s; border-radius: 10px; padding: 8px 12px; }
-QLineEdit#buscar:focus { border-color: %(acento)s; }
-
-/* ---- tarjetas ---- */
-QFrame#tarjeta, QFrame#kpi { background: %(panel)s; border: 1px solid %(borde)s; border-radius: 16px; }
-QFrame#kpi:hover { border-color: %(borde2)s; }
-QLabel#kpiTitulo { color: %(suave)s; font-size: 10px; font-weight: 700; }
-QLabel#kpiValor { font-size: 30px; font-weight: 800; }
-QLabel#kpiSub { color: %(tenue)s; font-size: 11px; }
-QLabel#tituloTarjeta { font-size: 15px; font-weight: 700; color: #ffffff; }
-QLabel#nota { color: %(suave)s; }
-QLabel#tenue { color: %(tenue)s; font-size: 12px; }
-QLabel#codigo { background: %(fondo)s; border: 1px dashed %(borde2)s; border-radius: 10px; padding: 12px;
-                color: #ffffff; }
-QFrame#heroe { border: 1px solid %(borde2)s; border-radius: 20px;
-               background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1d1840, stop:1 #10203a); }
-QLabel#heroeTitulo { font-size: 26px; font-weight: 800; color: #ffffff; }
-QFrame#plataforma { background: %(panel)s; border: 1px solid %(borde)s; border-radius: 18px; }
-QFrame#plataforma:hover { border-color: %(acento)s; }
-QFrame#opcion { background: %(panel)s; border: 2px solid %(borde)s; border-radius: 16px; }
-QFrame#opcion:hover { border-color: %(borde2)s; }
-QFrame#panelDetalle { background: %(panel)s; border-left: 1px solid %(borde)s; }
-QFrame#separador { background: %(borde)s; max-height: 1px; min-height: 1px; }
-
-/* ---- vacío ---- */
-QLabel#vacioIcono { font-size: 44px; }
-QLabel#vacioTitulo { font-size: 18px; font-weight: 700; color: #ffffff; }
-QLabel#vacioTexto { color: %(suave)s; }
-
-/* ---- avisos ---- */
-QFrame#toast { background: %(panel2)s; border: 1px solid %(borde2)s; border-radius: 14px; }
-QLabel#toastTitulo { font-weight: 700; color: #ffffff; }
-QLabel#toastTexto { color: %(suave)s; font-size: 12px; }
-
-/* ---- controles ---- */
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QPlainTextEdit {
-    background: %(fondo)s; color: %(texto)s; border: 1px solid %(borde2)s; border-radius: 10px;
-    padding: 8px 10px; selection-background-color: %(acento)s; }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QPlainTextEdit:focus {
-    border-color: %(acento)s; }
-QLineEdit[error="true"] { border-color: %(error)s; }
-QComboBox::drop-down { border: none; width: 24px; }
-QComboBox QAbstractItemView { background: %(panel2)s; border: 1px solid %(borde2)s; border-radius: 8px;
-                              selection-background-color: #2a2457; outline: none; padding: 4px; }
-QSpinBox:disabled, QDateEdit:disabled { color: %(tenue)s; }
-QCheckBox { spacing: 8px; }
-QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px; border: 1px solid %(borde2)s;
-                       background: %(fondo)s; }
-QCheckBox::indicator:checked { background: %(acento)s; border-color: %(acento)s; }
-QPushButton { border-radius: 10px; padding: 9px 16px; font-weight: 600; }
-QPushButton#primario { color: white; border: none;
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 %(acento)s, stop:1 %(acento2)s); }
-QPushButton#primario:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #8f74ff, stop:1 #6a9dff); }
-QPushButton#primario:pressed { background: %(acento)s; }
-QPushButton#secundario { background: %(panel2)s; color: %(texto)s; border: 1px solid %(borde2)s; }
-QPushButton#secundario:hover { background: #222838; border-color: #3d4660; }
-QPushButton#peligro { background: #2a1519; color: #ff8a8a; border: 1px solid #55232b; }
-QPushButton#peligro:hover { background: #3a1a20; }
-QPushButton#whatsapp { background: #15803d; color: #ecfdf3; border: none; }
-QPushButton#whatsapp:hover { background: #16a34a; }
-QPushButton#enlace { background: transparent; border: none; color: %(info)s; padding: 4px 2px; }
-QPushButton#enlace:hover { color: #7dd3fc; }
-QPushButton#chip { background: transparent; color: %(suave)s; border: 1px solid %(borde2)s; border-radius: 12px;
-                   padding: 4px 14px; font-weight: 600; font-size: 12px; }
-QPushButton#chip:hover { color: %(texto)s; border-color: #3d4660; }
-QPushButton#chip:checked { background: #251f4d; color: #ffffff; border-color: %(acento)s; }
-QPushButton:disabled { background: %(panel)s; color: %(tenue)s; border: 1px solid %(borde)s; }
-
-/* ---- tablas ---- */
-QTableWidget { background: %(panel)s; alternate-background-color: %(panel2)s; border: 1px solid %(borde)s;
-               border-radius: 14px; selection-background-color: #243156; selection-color: #ffffff;
-               gridline-color: transparent; }
-QTableWidget::item { padding: 0 10px; border: none; }
-QTableWidget::item:hover { background: #1f2536; }
-QTableWidget::item:selected { background: #243156; }
-QHeaderView { background: transparent; }
-QHeaderView::section { background: %(panel)s; color: %(tenue)s; border: none; border-bottom: 1px solid %(borde)s;
-                       padding: 10px; font-weight: 700; font-size: 11px; }
-QTableCornerButton::section { background: %(panel)s; border: none; }
-QScrollBar:vertical { background: transparent; width: 10px; margin: 4px 2px; }
-QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px 4px; }
-QScrollBar::handle { background: %(borde2)s; border-radius: 4px; min-height: 30px; min-width: 30px; }
-QScrollBar::handle:hover { background: #46506b; }
-QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page { width: 0; height: 0;
-                                                                                         background: none; }
-QScrollArea { background: transparent; border: none; }
-QScrollArea > QWidget > QWidget { background: transparent; }
-QStatusBar { background: %(panel)s; color: %(suave)s; border-top: 1px solid %(borde)s; padding-left: 12px; }
-QMessageBox { background: %(panel)s; }
-QMessageBox QLabel { min-width: 320px; }
-QMenu { background: %(panel2)s; border: 1px solid %(borde2)s; border-radius: 10px; padding: 6px; }
-QMenu::item { padding: 8px 18px; border-radius: 6px; }
-QMenu::item:selected { background: #2a2457; }
-""" % C

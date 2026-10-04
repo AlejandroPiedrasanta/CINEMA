@@ -1,4 +1,5 @@
-"""Servidor falso de Lemon Squeezy y Hotmart para probar sin internet ni compras reales.
+"""Cinema Productions · servidor falso de Lemon Squeezy, Hotmart, Gumroad, Polar y Supabase para probar sin
+internet ni compras reales.
 
 Imita los endpoints que usan licencia_cliente.py y el Administrador:
   - API de licencias: POST /v1/licenses/activate | validate | deactivate (sin API key)
@@ -7,6 +8,12 @@ Imita los endpoints que usan licencia_cliente.py y el Administrador:
   - Hotmart: POST /security/oauth/token, GET /payments/api/v1/sales/history, GET /products/api/v1/products
   - Gumroad: GET /v2/user | products | sales, POST /v2/licenses/verify,
     PUT /v2/licenses/enable | disable | decrement_uses_count
+  - Polar: organizations, products, benefits, checkout-links, orders, license-keys (Bearer + Polar-Version)
+    y la API pública /v1/customer-portal/license-keys/activate | validate | deactivate
+  - Supabase (servidor de control): /rest/v1/rpc/cinema_latido | cinema_aviso_leido y las tablas cinema_*
+    (con la clave secreta), con la misma lógica que servidor/supabase_cinema.sql
+
+Creado por Cinema Productions.
 """
 from __future__ import annotations
 
@@ -27,6 +34,12 @@ HM_PRODUCTO = 4444
 HM_TOKEN = "token-hotmart-de-prueba"
 GR_TOKEN = "token-gumroad-de-prueba"
 GR_PRODUCTO = "gr-prod-ABC=="
+PO_TOKEN = "polar_oat_de_prueba"
+PO_ORG = "11111111-2222-4333-8444-555555555555"
+PO_PRODUCTO = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+PO_BENEFICIO = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+SB_PUBLICA = "sb_publishable_de_prueba"
+SB_SECRETA = "sb_secret_de_prueba"
 
 
 def ahora() -> str:
@@ -46,6 +59,12 @@ class Datos:
         self.hotmart_tokens = 0
         self.gumroad: list[dict] = []
         self.gumroad_claves: dict[str, dict] = {}
+        self.polar_claves: dict[str, dict] = {}
+        self.polar_activaciones: dict[str, dict] = {}
+        self.polar_ordenes: list[dict] = []
+        self.polar_versiones: set = set()
+        self.sb = {"equipos": {}, "sesiones": {}, "uso": {}, "estados": {}, "avisos": [], "leidos": set(),
+                   "eventos": [], "aviso_id": 0}
         self._id = 1000
 
     def nuevo_id(self) -> int:
@@ -102,6 +121,36 @@ class Datos:
             self.gumroad_claves[clave] = {"uses": 0, "disabled": False, "venta": venta}
         return venta
 
+    def vender_polar(self, cliente="Valeria Soto", correo="valeria@example.com", limite=2, reembolsada=False,
+                     prefijo="CINEMA", con_activaciones=True) -> dict:
+        cliente_id = str(uuid.uuid4())
+        orden = {"id": str(uuid.uuid4()), "created_at": ahora(), "modified_at": ahora(),
+                 "status": "refunded" if reembolsada else "paid", "paid": True, "total_amount": 2900,
+                 "currency": "usd", "billing_reason": "purchase", "customer_id": cliente_id,
+                 "product_id": PO_PRODUCTO, "invoice_number": f"POL-{len(self.polar_ordenes) + 1:04d}",
+                 "customer": {"id": cliente_id, "email": correo, "name": cliente},
+                 "product": {"id": PO_PRODUCTO, "name": "Resolve Creator Subtitles"}, "description": "RCS"}
+        self.polar_ordenes.append(orden)
+        id_ = str(uuid.uuid4())
+        self.polar_claves[id_] = {
+            "id": id_, "created_at": ahora(), "modified_at": None, "organization_id": PO_ORG,
+            "customer_id": cliente_id, "customer": {"id": cliente_id, "email": correo, "name": cliente},
+            "benefit_id": PO_BENEFICIO, "key": f"{prefijo}-{str(uuid.uuid4()).upper()}", "display_key": "****",
+            "status": "revoked" if reembolsada else "granted",
+            "limit_activations": limite if con_activaciones else None, "usage": 0, "limit_usage": None,
+            "validations": 0, "last_validated_at": None, "expires_at": None}
+        return self.polar_claves[id_]
+
+    def reembolsar_polar(self, clave: str, reembolsar: bool = True):
+        lic = next(l for l in self.polar_claves.values() if l["key"] == clave)
+        lic["status"] = "revoked" if reembolsar else "granted"
+        for o in self.polar_ordenes:
+            if o["customer_id"] == lic["customer_id"]:
+                o["status"] = "refunded" if reembolsar else "paid"
+
+    def polar_por_clave(self, clave: str):
+        return next((l for l in self.polar_claves.values() if l["key"] == clave), None)
+
     def por_clave(self, clave: str):
         return next(((i, l) for i, l in self.licencias.items() if l["key"] == clave), (None, None))
 
@@ -127,6 +176,22 @@ def _meta(lic: dict) -> dict:
             "product_id": lic["product_id"], "product_name": "Resolve Creator Subtitles", "variant_id": VARIANTE,
             "variant_name": "Default", "customer_id": 1, "customer_name": lic["user_name"],
             "customer_email": lic["user_email"]}
+
+
+def _polar_lic(lic: dict) -> dict:
+    return {k: v for k, v in lic.items()}
+
+
+def _polar_activaciones(id_: str) -> list[dict]:
+    return [a for a in DATOS.polar_activaciones.values() if a["license_key_id"] == id_]
+
+
+def _pagina(items: list, q: dict) -> dict:
+    limite = int((q.get("limit") or ["10"])[0])
+    pagina = int((q.get("page") or ["1"])[0])
+    maximo = max(1, -(-len(items) // limite))
+    return {"items": items[(pagina - 1) * limite: pagina * limite],
+            "pagination": {"total_count": len(items), "max_page": maximo}}
 
 
 class Manejador(BaseHTTPRequestHandler):
@@ -295,6 +360,214 @@ class Manejador(BaseHTTPRequestHandler):
             return self._responder(200, {"success": True, "uses": lic["uses"], "purchase": compra})
         self._responder(404, {"success": False, "message": "Not found"})
 
+    # ------------------------------------------------------------ Polar
+    def _json(self) -> dict:
+        try:
+            return json.loads(self._cuerpo() or b"{}")
+        except ValueError:
+            return {}
+
+    def _polar_publico(self, accion: str):
+        c = self._json()
+        lic = DATOS.polar_por_clave(c.get("key", ""))
+        no_hay = {"error": "ResourceNotFound", "detail": "License key not found."}
+        if not lic or c.get("organization_id") != PO_ORG:
+            return self._responder(404, no_hay)
+        vencida = lic["expires_at"] and lic["expires_at"] < ahora()
+        if accion == "validate":
+            if lic["status"] != "granted" or vencida:
+                return self._responder(404, no_hay)
+            if c.get("benefit_id") and c["benefit_id"] != lic["benefit_id"]:
+                return self._responder(404, no_hay)
+            if c.get("activation_id"):
+                act = DATOS.polar_activaciones.get(c["activation_id"])
+                if not act or act["license_key_id"] != lic["id"]:
+                    return self._responder(404, {"error": "ResourceNotFound", "detail": "Activation not found."})
+            lic["validations"] += 1
+            lic["last_validated_at"] = ahora()
+            return self._responder(200, _polar_lic(lic) | {"status": "granted"})
+        if accion == "activate":
+            if lic["status"] != "granted" or vencida:
+                return self._responder(403, {"error": "NotPermitted", "detail": "License key is not granted."})
+            if lic["limit_activations"] is None:
+                return self._responder(403, {"error": "NotPermitted",
+                                             "detail": "License key does not support activations."})
+            if len(_polar_activaciones(lic["id"])) >= lic["limit_activations"]:
+                return self._responder(403, {"error": "NotPermitted", "detail": "Activation limit reached."})
+            act = {"id": str(uuid.uuid4()), "license_key_id": lic["id"], "label": c.get("label", ""),
+                   "meta": c.get("meta") or {}, "created_at": ahora(), "modified_at": None}
+            DATOS.polar_activaciones[act["id"]] = act
+            return self._responder(200, act | {"license_key": _polar_lic(lic) | {"status": "granted"}})
+        if accion == "deactivate":
+            act = DATOS.polar_activaciones.get(c.get("activation_id", ""))
+            if not act or act["license_key_id"] != lic["id"]:
+                return self._responder(404, {"error": "ResourceNotFound", "detail": "Activation not found."})
+            del DATOS.polar_activaciones[act["id"]]
+            self.send_response(204)
+            self.end_headers()
+            return None
+        return self._responder(404, no_hay)
+
+    def _polar(self, metodo: str, ruta: str, q: dict):
+        if self.headers.get("Authorization") != f"Bearer {PO_TOKEN}":
+            return self._responder(401, {"error": "Unauthorized", "detail": "Invalid token"})
+        DATOS.polar_versiones.add(self.headers.get("Polar-Version"))
+        uno = {k: v[0] for k, v in q.items()}
+        if metodo == "GET" and ruta == "organizations/":
+            return self._responder(200, _pagina([{"id": PO_ORG, "name": "Cinema Productions", "slug": "cinema"}], q))
+        if metodo == "GET" and ruta == "products/":
+            return self._responder(200, _pagina([{"id": PO_PRODUCTO, "name": "Resolve Creator Subtitles",
+                                                  "organization_id": PO_ORG, "is_archived": False}], q))
+        if metodo == "GET" and ruta == "benefits/":
+            return self._responder(200, _pagina([{"id": PO_BENEFICIO, "type": "license_keys",
+                                                  "description": "Licencia de RCS",
+                                                  "properties": {"prefix": "CINEMA", "activations": {"limit": 2}}}],
+                                                q))
+        if metodo == "GET" and ruta == "checkout-links/":
+            return self._responder(200, _pagina([{"id": "cl1", "url": "https://buy.polar.sh/polar_cl_prueba",
+                                                  "products": [{"id": PO_PRODUCTO}]}], q))
+        if metodo == "GET" and ruta == "orders/":
+            ordenes = [o for o in DATOS.polar_ordenes if not uno.get("product_id")
+                       or o["product_id"] == uno["product_id"]]
+            return self._responder(200, _pagina(list(reversed(ordenes)), q))
+        if metodo == "GET" and ruta == "license-keys/":
+            claves = [_polar_lic(l) for l in DATOS.polar_claves.values()
+                      if not uno.get("benefit_id") or l["benefit_id"] == uno["benefit_id"]]
+            return self._responder(200, _pagina(claves, q))
+        if ruta.startswith("license-keys/") and ruta.count("/") == 1 and ruta != "license-keys/deactivate":
+            lic = DATOS.polar_claves.get(ruta.split("/")[1])
+            if not lic:
+                return self._responder(404, {"error": "ResourceNotFound", "detail": "Not found"})
+            if metodo == "PATCH":
+                cambios = self._json()
+                for k in ("status", "limit_activations", "expires_at", "usage"):
+                    if k in cambios:
+                        lic[k] = cambios[k]
+                lic["modified_at"] = ahora()
+                return self._responder(200, _polar_lic(lic))
+            return self._responder(200, _polar_lic(lic) | {"activations": _polar_activaciones(lic["id"])})
+        if metodo == "POST" and ruta == "license-keys/deactivate":
+            c = self._json()
+            act = DATOS.polar_activaciones.get(c.get("activation_id", ""))
+            if not act:
+                return self._responder(404, {"error": "ResourceNotFound", "detail": "Not found"})
+            del DATOS.polar_activaciones[act["id"]]
+            self.send_response(204)
+            self.end_headers()
+            return None
+        return self._responder(404, {"error": "ResourceNotFound", "detail": "Not found"})
+
+    # ------------------------------------------------------------ Supabase (servidor de control)
+    def _sb_clave(self) -> str:
+        return self.headers.get("apikey") or ""
+
+    def _sb_rpc(self, funcion: str):
+        clave = self._sb_clave()
+        if clave not in (SB_PUBLICA, SB_SECRETA):
+            return self._responder(401, {"message": "Invalid API key"})
+        p = (self._json() or {}).get("p") or {}
+        sb = DATOS.sb
+        if funcion == "cinema_limpiar":
+            if clave != SB_SECRETA:
+                return self._responder(401, {"code": "42501", "message": "permission denied for function"})
+            return self._responder(200, {"sesiones": 0, "eventos": 0})
+        lic, equipo = str(p.get("licencia") or "").lower(), str(p.get("equipo") or "")[:40]
+        if funcion == "cinema_aviso_leido":
+            aviso = next((a for a in sb["avisos"] if str(a["id"]) == str(p.get("aviso"))), None)
+            if aviso and equipo and (aviso["licencia"] in (None, lic)):
+                sb["leidos"].add((aviso["id"], lic, equipo, ahora()))
+            return self._responder(200, {})
+        if funcion != "cinema_latido":
+            return self._responder(404, {"code": "PGRST202", "message": "Could not find the function"})
+        if len(lic) != 64 or not equipo:
+            return self._responder(400, {"code": "22023", "message": "datos incompletos"})
+        seg = max(0, min(int(p.get("segundos") or 0), 3600))
+        e = sb["equipos"].setdefault((lic, equipo), {"licencia": lic, "equipo": equipo, "primera_vez": ahora(),
+                                                     "segundos_uso": 0, "sesiones": 0})
+        e.update({k2: p[k1] for k1, k2 in (("app", "app"), ("nombre_equipo", "nombre_equipo"), ("so", "so"),
+                                          ("version", "version_app"), ("tienda", "tienda"), ("sdk", "sdk"))
+                  if p.get(k1)})
+        e["ultima_vez"] = ahora()
+        e["segundos_uso"] += seg
+        e["sesiones"] += 1 if p.get("inicio") else 0
+        if p.get("sesion"):
+            ses = sb["sesiones"].setdefault(p["sesion"], {"id": p["sesion"], "licencia": lic, "equipo": equipo,
+                                                         "inicio": ahora(), "segundos": 0, "cerrada": False})
+            ses["segundos"] += seg
+            ses["ultima"] = ahora()
+            ses["cerrada"] = ses["cerrada"] or bool(p.get("fin"))
+        if seg:
+            dia = ahora()[:10]
+            sb["uso"][(lic, equipo, dia)] = sb["uso"].get((lic, equipo, dia), 0) + seg
+        if p.get("evento"):
+            sb["eventos"].append({"id": len(sb["eventos"]) + 1, "licencia": lic, "equipo": equipo,
+                                  "tipo": p["evento"], "detalle": p.get("detalle") or "", "creado": ahora()})
+        estado = sb["estados"].get(lic) or {}
+        leidos = {(a, l, eq) for a, l, eq, _ in sb["leidos"]}
+        avisos = [{k: a[k] for k in ("id", "tipo", "titulo", "mensaje", "fecha_limite", "creado")}
+                  for a in sb["avisos"] if a["licencia"] in (None, lic)
+                  and (a.get("app") in (None, p.get("app"))) and (a["id"], lic, equipo) not in leidos]
+        return self._responder(200, {"estado": estado.get("estado") or "activa", "motivo": estado.get("motivo"),
+                                     "avisos": avisos})
+
+    def _sb_tabla(self, metodo: str, tabla: str, q: dict):
+        if self._sb_clave() != SB_SECRETA:
+            return self._responder(401, {"code": "42501", "message": f"permission denied for table {tabla}"})
+        sb, uno = DATOS.sb, {k: v[0] for k, v in q.items()}
+        filas = {
+            "cinema_equipos": lambda: list(sb["equipos"].values()),
+            "cinema_uso_diario": lambda: [{"licencia": l, "equipo": e, "dia": d, "segundos": s}
+                                          for (l, e, d), s in sb["uso"].items()],
+            "cinema_estados": lambda: list(sb["estados"].values()),
+            "cinema_avisos": lambda: list(sb["avisos"]),
+            "cinema_avisos_leidos": lambda: [{"aviso": a, "licencia": l, "equipo": e, "leido": f}
+                                             for a, l, e, f in sb["leidos"]],
+            "cinema_eventos": lambda: list(sb["eventos"]),
+            "cinema_sesiones": lambda: list(sb["sesiones"].values()),
+        }
+        if tabla not in filas:
+            return self._responder(404, {"code": "PGRST205", "message": f"Could not find the table 'public.{tabla}'"})
+        if metodo == "GET":
+            datos = filas[tabla]()
+            for campo, filtro in uno.items():
+                if campo in ("select", "order", "limit", "offset"):
+                    continue
+                op, _, valor = filtro.partition(".")
+                datos = [d for d in datos if (str(d.get(campo)) == valor if op == "eq" else
+                                              str(d.get(campo)) >= valor if op == "gte" else True)]
+            if "order" in uno:
+                campo, _, sentido = uno["order"].partition(".")
+                datos.sort(key=lambda d: str(d.get(campo) or ""), reverse=sentido == "desc")
+            inicio = int(uno.get("offset") or 0)
+            return self._responder(200, datos[inicio:inicio + int(uno.get("limit") or 1000)])
+        if metodo == "POST" and tabla == "cinema_avisos":
+            nuevas = self._json()
+            nuevas = nuevas if isinstance(nuevas, list) else [nuevas]
+            creadas = []
+            for n in nuevas:
+                sb["aviso_id"] += 1
+                creadas.append({"id": sb["aviso_id"], "licencia": n.get("licencia"), "app": n.get("app"),
+                                "tipo": n.get("tipo", "info"), "titulo": n["titulo"], "mensaje": n.get("mensaje", ""),
+                                "fecha_limite": n.get("fecha_limite"), "creado": ahora(), "expira": None})
+            sb["avisos"] += creadas
+            return self._responder(201, creadas)
+        if metodo == "POST" and tabla == "cinema_estados":
+            n = self._json()
+            sb["estados"][n["licencia"]] = {"licencia": n["licencia"], "estado": n["estado"],
+                                            "motivo": n.get("motivo"), "actualizado": ahora()}
+            self.send_response(201)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
+        if metodo == "DELETE" and tabla == "cinema_avisos":
+            id_ = uno.get("id", "").partition(".")[2]
+            sb["avisos"] = [a for a in sb["avisos"] if str(a["id"]) != id_]
+            sb["leidos"] = {x for x in sb["leidos"] if str(x[0]) != id_}
+            self.send_response(204)
+            self.end_headers()
+            return None
+        return self._responder(405, {"message": "not allowed"})
+
     def _form(self) -> dict:
         return {k: v[0] for k, v in urllib.parse.parse_qs(self._cuerpo().decode()).items()}
 
@@ -305,9 +578,22 @@ class Manejador(BaseHTTPRequestHandler):
                 return self._gumroad("PUT", url.path[4:], self._form())
         self._responder(404, {"errors": [{"status": "404", "title": "Not Found"}]})
 
+    def do_DELETE(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path.startswith("/rest/v1/"):
+            with DATOS.lock:
+                return self._sb_tabla("DELETE", url.path[9:], urllib.parse.parse_qs(url.query))
+        self._responder(404, {"message": "Not Found"})
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
+        if url.path.startswith("/rest/v1/"):
+            with DATOS.lock:
+                return self._sb_tabla("GET", url.path[9:], q)
+        if url.path.startswith("/polar/v1/"):
+            with DATOS.lock:
+                return self._polar("GET", url.path[10:], q)
         if url.path.startswith("/v2/"):
             with DATOS.lock:
                 return self._gumroad("GET", url.path[4:], {k: v[0] for k, v in q.items()})
@@ -340,9 +626,13 @@ class Manejador(BaseHTTPRequestHandler):
         self._responder(404, {"errors": [{"status": "404", "title": "Not Found"}]})
 
     def do_PATCH(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path.startswith("/polar/v1/"):
+            with DATOS.lock:
+                return self._polar("PATCH", url.path[10:], urllib.parse.parse_qs(url.query))
         if not self._autorizado():
             return
-        ruta = urllib.parse.urlparse(self.path).path.removeprefix("/v1/")
+        ruta = url.path.removeprefix("/v1/")
         cuerpo = json.loads(self._cuerpo())
         with DATOS.lock:
             if ruta.startswith("license-keys/"):
@@ -357,6 +647,18 @@ class Manejador(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urllib.parse.urlparse(self.path)
+        if url.path.startswith("/rest/v1/rpc/"):
+            with DATOS.lock:
+                return self._sb_rpc(url.path[13:])
+        if url.path.startswith("/rest/v1/"):
+            with DATOS.lock:
+                return self._sb_tabla("POST", url.path[9:], urllib.parse.parse_qs(url.query))
+        if url.path.startswith("/polar/v1/customer-portal/license-keys/"):
+            with DATOS.lock:
+                return self._polar_publico(url.path.rsplit("/", 1)[1])
+        if url.path.startswith("/polar/v1/"):
+            with DATOS.lock:
+                return self._polar("POST", url.path[10:], urllib.parse.parse_qs(url.query))
         if url.path == "/security/oauth/token":
             return self._hotmart_token(urllib.parse.parse_qs(url.query))
         if url.path.startswith("/v2/"):
@@ -390,5 +692,6 @@ def iniciar(puerto: int = 0) -> ThreadingHTTPServer:
 if __name__ == "__main__":
     s = iniciar(8765)
     print(DATOS.vender())
+    print(DATOS.vender_polar())
     print("Simulador en http://127.0.0.1:8765  (Ctrl+C para salir)")
     threading.Event().wait()

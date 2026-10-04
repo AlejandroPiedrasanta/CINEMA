@@ -1,8 +1,11 @@
-"""Conexión con las plataformas de venta: Lemon Squeezy, Hotmart y Gumroad.
+"""Cinema Productions · Administrador de Licencias — conexión con las plataformas de venta:
+Lemon Squeezy, Hotmart, Gumroad y Polar.
 
 Sin dependencias externas (solo urllib), para que el Administrador funcione igual en
 Windows, macOS y Linux. Todas las llamadas son bloqueantes: la interfaz las ejecuta en
 segundo plano.
+
+Creado por Cinema Productions.
 """
 from __future__ import annotations
 
@@ -16,12 +19,16 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-AGENTE = "RCS-Administrador/4.0"
+__author__ = "Cinema Productions"
+
+AGENTE = "CinemaProductions-Administrador/5.0"
 LS_API = "https://api.lemonsqueezy.com/v1/"
 HOTMART_AUTH = "https://api-sec-vlc.hotmart.com/security/oauth/token"
 HOTMART_API = {False: "https://developers.hotmart.com", True: "https://sandbox.hotmart.com"}
 HOTMART_DESDE_MS = 1420070400000          # 01/01/2015: para traer todo el historial de ventas
 GUMROAD_API = "https://api.gumroad.com/v2/"
+POLAR_API = {False: "https://api.polar.sh", True: "https://sandbox-api.polar.sh"}
+POLAR_VERSION = "2026-10"
 
 PLATAFORMAS = {
     "lemonsqueezy": {"nombre": "Lemon Squeezy", "icono": "🍋", "color": "#facc15",
@@ -33,10 +40,15 @@ PLATAFORMAS = {
     "gumroad": {"nombre": "Gumroad", "icono": "🛍️", "color": "#ff90e8",
                 "descripcion": "Ventas, compradores y claves de licencia.",
                 "ayuda_url": "https://app.gumroad.com/settings/advanced"},
+    "polar": {"nombre": "Polar", "icono": "❄️", "color": "#3b82f6",
+              "descripcion": "Claves de licencia con activaciones, pedidos y reembolsos.",
+              "ayuda_url": "https://polar.sh/dashboard"},
 }
 
 ESTADOS_LICENCIA = {"active": "Activa", "inactive": "Sin activar", "expired": "Vencida", "disabled": "Bloqueada",
-                    "refunded": "Reembolsada"}
+                    "refunded": "Reembolsada", "revoked": "Revocada"}
+ESTADOS_POLAR = {"paid": "Pagada", "refunded": "Reembolsada", "partially_refunded": "Reembolso parcial",
+                 "pending": "Pendiente", "draft": "Borrador", "void": "Anulada"}
 ESTADOS_LS = {"paid": "Pagada", "refunded": "Reembolsada", "partial_refund": "Reembolso parcial",
               "pending": "Pendiente", "failed": "Fallida"}
 ESTADOS_HOTMART = {
@@ -83,6 +95,11 @@ def _detalle(cuerpo) -> str:
     errores = cuerpo.get("errors")
     if isinstance(errores, list) and errores:
         return str(errores[0].get("detail") or errores[0].get("title") or "")
+    detalle = cuerpo.get("detail")
+    if isinstance(detalle, list) and detalle:      # errores de validación (Polar / FastAPI)
+        return "; ".join(str(d.get("msg") or d) for d in detalle if isinstance(d, dict))[:300]
+    if isinstance(detalle, str) and detalle:
+        return detalle
     return str(cuerpo.get("error_description") or cuerpo.get("message") or cuerpo.get("error") or "")
 
 
@@ -518,6 +535,177 @@ def venta_gumroad(v: dict) -> dict:
     }
 
 
+# ============================================================ Polar
+
+class Polar:
+    """Polar con un Organization Access Token (Settings → General → Developers)."""
+    clave = "polar"
+
+    def __init__(self, token: str, sandbox: bool = False, organizacion_id: str = ""):
+        self.token, self.sandbox, self.organizacion_id = token.strip(), bool(sandbox), organizacion_id
+        self._cache_ventas: tuple[float, tuple, list] | None = None
+        self._detalles: dict[str, tuple[float, dict]] = {}
+
+    def _req(self, metodo: str, ruta: str, consulta: dict | None = None, cuerpo=None):
+        url = POLAR_API[self.sandbox] + ruta
+        if consulta:
+            url += "?" + urllib.parse.urlencode({k: v for k, v in consulta.items() if v not in (None, "")}, doseq=True)
+        try:
+            return _http(metodo, url, {"Authorization": f"Bearer {self.token}", "Accept": "application/json",
+                                       "Content-Type": "application/json", "Polar-Version": POLAR_VERSION},
+                         json.dumps(cuerpo).encode() if cuerpo is not None else None)
+        except ErrorApi as e:
+            detalle = _detalle(e.cuerpo)
+            mensajes = {0: str(e),
+                        401: "El token de Polar no es válido o venció. Crea uno nuevo en Settings → Developers.",
+                        403: "El token de Polar no tiene permiso para esto. Revisa sus permisos (scopes). "
+                             + detalle,
+                        404: detalle or "No se encontró en Polar.",
+                        422: f"Polar rechazó los datos. {detalle}",
+                        429: "Demasiadas peticiones a Polar. Espera un minuto."}
+            raise ErrorApi(mensajes.get(e.codigo, f"Error de Polar ({e.codigo}). {detalle}").strip(), e.codigo,
+                           e.cuerpo) from e
+
+    def _todas(self, ruta: str, consulta: dict | None = None, max_paginas: int = 50) -> list[dict]:
+        items, pagina = [], 1
+        while True:
+            r = self._req("GET", ruta, (consulta or {}) | {"page": pagina, "limit": 100}) or {}
+            items += r.get("items") or []
+            ultima = int((r.get("pagination") or {}).get("max_page") or 1)
+            if pagina >= ultima or pagina >= max_paginas:
+                return items
+            pagina += 1
+
+    def _total(self, ruta: str, consulta: dict) -> int:
+        r = self._req("GET", ruta, consulta | {"page": 1, "limit": 1}) or {}
+        return int((r.get("pagination") or {}).get("total_count") or len(r.get("items") or []))
+
+    # --- cuenta
+    def organizacion(self) -> dict:
+        orgs = self._todas("/v1/organizations/")
+        if not orgs:
+            raise ErrorApi("El token no tiene acceso a ninguna organización de Polar.")
+        return next((o for o in orgs if o.get("id") == self.organizacion_id), orgs[0])
+
+    def productos(self, org: str) -> list[dict]:
+        return self._todas("/v1/products/", {"organization_id": org, "is_archived": "false"})
+
+    def beneficios(self, org: str) -> list[dict]:
+        return self._todas("/v1/benefits/", {"organization_id": org, "type": "license_keys"})
+
+    def enlaces(self, org: str, producto: str = "") -> list[dict]:
+        try:
+            return self._todas("/v1/checkout-links/", {"organization_id": org, "product_id": producto})
+        except ErrorApi:
+            return []      # el token no tiene el permiso checkout_links:read
+
+    def conectar(self, producto: str = "") -> dict:
+        """Prueba el token y reúne lo que se muestra en la ventana de 'Conectado'."""
+        org = self.organizacion()
+        oid = org["id"]
+        ventas = self.ventas(oid, producto, max_edad=0)
+        return {"plataforma": self.clave, "organizacion": org, "productos": self.productos(oid),
+                "beneficios": self.beneficios(oid), "enlaces": self.enlaces(oid),
+                "claves": self._total("/v1/license-keys/", {"organization_id": oid}),
+                "sandbox": self.sandbox, **resumen_ventas(ventas)}
+
+    # --- lectura
+    def ventas(self, org: str, producto: str = "", max_edad: float = 60) -> list[dict]:
+        clave = (org, producto)
+        if self._cache_ventas and self._cache_ventas[1] == clave and time.time() - self._cache_ventas[0] < max_edad:
+            return self._cache_ventas[2]
+        pedidos = self._todas("/v1/orders/", {"organization_id": org, "product_id": producto,
+                                              "sorting": "-created_at"})
+        ventas = [venta_polar(o, self.sandbox) for o in pedidos]
+        self._cache_ventas = (time.time(), clave, ventas)
+        return ventas
+
+    def licencias(self, org: str, beneficio: str = "") -> list[dict]:
+        return self._todas("/v1/license-keys/", {"organization_id": org, "benefit_id": beneficio})
+
+    def detalle_licencia(self, id_: str, max_edad: float = 300) -> dict:
+        """La clave con sus activaciones (equipos). Se guarda unos minutos para no gastar peticiones."""
+        guardado = self._detalles.get(id_)
+        if guardado and time.time() - guardado[0] < max_edad:
+            return guardado[1]
+        r = self._req("GET", f"/v1/license-keys/{id_}") or {}
+        self._detalles[id_] = (time.time(), r)
+        return r
+
+    def datos(self, org: str, producto: str = "", beneficio: str = "", max_detalles: int = 60) -> dict:
+        claves = self.licencias(org, beneficio)
+        detalles = {}
+        if len(claves) <= max_detalles:
+            for k in claves:
+                try:
+                    detalles[k["id"]] = self.detalle_licencia(k["id"])
+                except ErrorApi:
+                    pass
+        return {"claves": claves, "detalles": detalles, "ventas": self.ventas(org, producto),
+                "sandbox": self.sandbox}
+
+    # --- licencias
+    def editar_licencia(self, id_: str, cambios: dict) -> dict:
+        self._detalles.pop(id_, None)
+        return self._req("PATCH", f"/v1/license-keys/{id_}", cuerpo=cambios) or {}
+
+    def quitar_equipo(self, org: str, clave: str, activacion: str, id_: str = ""):
+        if id_:
+            self._detalles.pop(id_, None)
+        try:
+            self._req("POST", "/v1/license-keys/deactivate",
+                      cuerpo={"key": clave, "organization_id": org, "activation_id": activacion})
+        except ErrorApi as e:
+            if e.codigo != 404:      # 404: ya estaba desactivado
+                raise
+
+
+def venta_polar(o: dict, sandbox: bool = False) -> dict:
+    cliente, producto = o.get("customer") or {}, o.get("product") or {}
+    estado = str(o.get("status") or "")
+    centavos = o.get("total_amount")
+    moneda = str(o.get("currency") or "").upper()
+    total = centavos / 100 if isinstance(centavos, (int, float)) else None
+    return {
+        "plataforma": "polar", "id": f"po-{o.get('id')}",
+        "referencia": o.get("invoice_number") or f"#{str(o.get('id') or '')[:8]}",
+        "fecha": o.get("created_at"), "cliente": cliente.get("name") or o.get("billing_name") or "",
+        "correo": cliente.get("email") or "", "producto": producto.get("name") or o.get("description") or "",
+        "producto_id": o.get("product_id"), "cliente_id": o.get("customer_id"),
+        "total": total, "moneda": moneda, "total_txt": dinero(total, moneda),
+        "estado": ESTADOS_POLAR.get(estado, estado.title() or "—"),
+        "valida": estado in ("paid", "partially_refunded"),
+        "reembolso": o.get("modified_at") if estado in ("refunded", "partially_refunded") else None,
+        "recibo": "", "prueba": bool(sandbox),
+    }
+
+
+def licencia_polar(k: dict, detalle: dict | None = None, sandbox: bool = False) -> dict:
+    """Clave de Polar con los mismos campos que una licencia de Lemon Squeezy."""
+    cliente = k.get("customer") or {}
+    activaciones = (detalle or {}).get("activations")
+    estado = {"granted": "active", "revoked": "revoked", "disabled": "disabled"}.get(k.get("status"), k.get("status"))
+    vence = k.get("expires_at")
+    if estado == "active" and vence and vence < ahora_iso():
+        estado = "expired"
+    if estado == "active" and activaciones is not None and not activaciones and not k.get("validations"):
+        estado = "inactive"
+    return {"id": f"po-{k['id']}", "polar_id": k["id"], "plataforma": "polar",
+            "key": k.get("key") or k.get("display_key") or "", "status": estado,
+            "disabled": k.get("status") == "disabled", "user_name": cliente.get("name") or "",
+            "user_email": cliente.get("email") or "", "created_at": k.get("created_at"), "expires_at": vence,
+            "activation_limit": k.get("limit_activations"),
+            "instances_count": len(activaciones) if activaciones is not None else None, "test_mode": bool(sandbox),
+            "validaciones": k.get("validations") or 0, "ultima_validacion": k.get("last_validated_at"),
+            "cliente_id": k.get("customer_id"), "beneficio_id": k.get("benefit_id"), "uso": k.get("usage")}
+
+
+def instancias_polar(k: dict, detalle: dict | None) -> list[dict]:
+    return [{"id": f"po-act-{a['id']}", "license_key_id": f"po-{k['id']}", "name": a.get("label") or "",
+             "identifier": a["id"], "created_at": a.get("created_at"), "plataforma": "polar"}
+            for a in (detalle or {}).get("activations") or []]
+
+
 def crear_cliente(plataforma: str, cfg: dict):
     """Cliente de API a partir de la configuración guardada de una plataforma (o None)."""
     if plataforma == "lemonsqueezy" and cfg.get("api_key"):
@@ -526,4 +714,6 @@ def crear_cliente(plataforma: str, cfg: dict):
         return Hotmart(cfg["client_id"], cfg["client_secret"], cfg.get("basic", ""), cfg.get("sandbox", False))
     if plataforma == "gumroad" and cfg.get("token"):
         return Gumroad(cfg["token"])
+    if plataforma == "polar" and cfg.get("token"):
+        return Polar(cfg["token"], cfg.get("sandbox", False), cfg.get("organizacion_id", ""))
     return None
