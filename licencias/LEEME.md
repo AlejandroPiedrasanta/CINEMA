@@ -2,10 +2,12 @@
 
 ```
 licencias/
+├── Administrador de Licencias.exe   ← TU panel listo para usar (solo para ti, no lo distribuyas)
 ├── administrador/
 │   ├── administrador_licencias.py   ← TU panel (solo para ti, usa tu API key)
 │   ├── icono.ico
-│   └── CONSTRUIR_EXE.bat            ← crea "Administrador de Licencias.exe" (doble clic)
+│   ├── administrador.spec           ← receta de PyInstaller (exe sin partes de Qt que no se usan)
+│   └── CONSTRUIR_EXE.bat            ← vuelve a crear el .exe (doble clic)
 ├── programa/
 │   ├── licencia_cliente.py          ← va DENTRO de tu programa (no lleva API key)
 │   └── ejemplo_integracion.py       ← ejemplo de cómo conectarlo en main()
@@ -41,8 +43,8 @@ Si alguien pasa su clave a otra persona y ya se usaron todos los equipos permiti
 
 ## Paso 2 — Abrir el Administrador
 
-1. Doble clic en `administrador\CONSTRUIR_EXE.bat` → se crea
-   `administrador\dist\Administrador de Licencias.exe` (o ejecuta `python administrador_licencias.py`).
+1. Abre `Administrador de Licencias.exe`. Si cambias el código, recompílalo con doble clic en
+   `administrador\CONSTRUIR_EXE.bat` (crea `administrador\dist\Administrador de Licencias.exe`).
 2. La primera vez pide tu **API key** (Lemon Squeezy → **Settings → API**) → **Conectar** →
    elige **Tienda** y **Producto** → **Guardar**.
 3. En esa misma ventana aparece **"Datos para tu programa"** → **Copiar**. Ejemplo:

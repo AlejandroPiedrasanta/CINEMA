@@ -12,8 +12,7 @@ echo  [1/2] Instalando PySide6 y PyInstaller...
 if errorlevel 1 goto error
 
 echo  [2/2] Creando el .exe (tarda 1-2 minutos)...
-%PY% -m PyInstaller --noconfirm --clean --onefile --windowed ^
-  --name "Administrador de Licencias" --icon icono.ico administrador_licencias.py
+%PY% -m PyInstaller --noconfirm --clean administrador.spec
 if errorlevel 1 goto error
 
 echo.
