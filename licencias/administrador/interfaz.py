@@ -32,7 +32,12 @@ __all__ = ["ANIM", "C", "MARCA", "BarraTitulo", "BotonVentana", "IconoEstado", "
            "instalar_agarraderas", "logo_cinema", "mezclar", "notificar", "pedir_texto", "preguntar", "tinte"]
 
 ANIMACIONES = {"activas": True}
-PRIVACIDAD = {"activa": False, "claves": False}
+PRIVACIDAD = {"activa": False, "nombres": True, "correos": True, "claves": True}
+
+
+def _oculto(que: str) -> bool:
+    """True si el modo privado está activo y en Ajustes se eligió ocultar «que» (nombres, correos o claves)."""
+    return bool(PRIVACIDAD["activa"] and PRIVACIDAD.get(que))
 TABLA = {"alto": DENSIDADES["normal"]}
 ESTADO_TOKEN = {
     "Activa": "ok", "Sin activar": "info", "Bloqueada": "error", "Vencida": "aviso", "Revocada": "error",
@@ -77,16 +82,16 @@ def _velar(palabra: str) -> str:
 
 def priv_nombre(nombre: str | None) -> str:
     """'Juan Pérez' → 'J••• P••••' cuando el modo privado está activo."""
-    if not nombre or not PRIVACIDAD["activa"]:
-        return nombre or ""
-    if "@" in nombre:
+    if nombre and "@" in str(nombre):
         return priv_correo(nombre)
+    if not nombre or not _oculto("nombres"):
+        return nombre or ""
     return " ".join(_velar(p) for p in str(nombre).split())
 
 
 def priv_correo(correo: str | None) -> str:
     """'juan@gmail.com' → 'j•••@g••••.com' cuando el modo privado está activo."""
-    if not correo or not PRIVACIDAD["activa"] or "@" not in str(correo):
+    if not correo or not _oculto("correos") or "@" not in str(correo):
         return correo or ""
     usuario, _, dominio = str(correo).partition("@")
     nombre, punto, final = dominio.rpartition(".")
@@ -94,7 +99,7 @@ def priv_correo(correo: str | None) -> str:
 
 
 def priv_clave(clave: str | None) -> str:
-    if not clave or not (PRIVACIDAD["activa"] and PRIVACIDAD["claves"]):
+    if not clave or not _oculto("claves"):
         return clave or ""
     return f"••••-••••-{str(clave)[-4:]}"
 
@@ -147,7 +152,7 @@ class Avatar(QWidget):
     def fijar(self, nombre: str, clave: str = ""):
         partes = [p for p in (nombre or "").replace("@", " ").split() if p]
         self.iniciales = "".join(p[0] for p in partes[:2]).upper() or "?"
-        if PRIVACIDAD["activa"]:
+        if _oculto("nombres"):
             self.iniciales = self.iniciales[:1]
         h = int(hashlib.md5((clave or nombre or "?").lower().encode()).hexdigest()[:6], 16)
         self.color = QColor(self.PALETA[h % len(self.PALETA)])

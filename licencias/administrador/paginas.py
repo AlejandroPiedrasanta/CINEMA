@@ -1281,17 +1281,23 @@ class PaginaAjustes(Pagina):
         c.addWidget(self._seccion("🎨  Apariencia", "Elige un estilo. El cambio se aplica al instante.", temas, f))
 
         # ---- privacidad
-        self.privado = Interruptor("Ocultar nombres y correos")
+        self.privado = Interruptor("Modo privado (ocultar datos en la interfaz)")
         self.privado.setChecked(cfg.get("privacidad", False))
         self.privado.toggled.connect(lambda val: self.v.fijar_privacidad(val))
-        self.privado_claves = Interruptor("Ocultar también las claves de licencia")
-        self.privado_claves.setChecked(cfg.get("privacidad_claves", False))
-        self.privado_claves.toggled.connect(lambda val: self._guardar("privacidad_claves", val, repintar=True))
+        self.ocultar = {}
         f = self._form()
         f.addRow("", self.privado)
-        f.addRow("", self.privado_claves)
-        c.addWidget(self._seccion("🙈  Privacidad", "Ideal para grabar la pantalla o compartir capturas: los nombres "
-                                  "se ven como «J••• P••••». También con el botón del ojo arriba (Ctrl+Mayús+P).", f))
+        for que, texto, ejemplo in (("nombres", "Ocultar nombres", "Juan Pérez → J••• P••••"),
+                                    ("correos", "Ocultar correos", "juan@gmail.com → j•••@g••••.com"),
+                                    ("claves", "Ocultar claves de licencia", "ABCD-…-9F3A → ••••-••••-9F3A")):
+            interruptor = Interruptor(texto)
+            interruptor.setChecked(cfg.get(f"privacidad_{que}", True))
+            interruptor.toggled.connect(lambda val, q=que: self._guardar(f"privacidad_{q}", val, repintar=True))
+            self.ocultar[que] = interruptor
+            f.addRow("", fila(interruptor, etiqueta(ejemplo, "nota"), None))
+        c.addWidget(self._seccion("🙈  Privacidad", "Ideal para grabar la pantalla o compartir capturas. Activa el modo "
+                                  "privado y elige qué ocultar: nombres, correos y claves de licencia. También con el "
+                                  "botón del ojo arriba (Ctrl+Mayús+P).", f))
 
         # ---- notificaciones
         self.intervalo = QComboBox()

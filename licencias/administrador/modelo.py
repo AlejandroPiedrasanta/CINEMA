@@ -49,7 +49,8 @@ def config_base() -> dict:
         "tema": TEMA_POR_DEFECTO, "escala": 1.0, "densidad": "normal", "animaciones": True, "velocidad": 1.0,
         "nav_plegada": False,
         # privacidad y notificaciones
-        "privacidad": False, "privacidad_claves": False, "notificaciones": True, "bandeja": True,
+        "privacidad": False, "privacidad_nombres": True, "privacidad_correos": True,
+        "privacidad_claves": True, "notificaciones": True, "bandeja": True,
         "cerrar_a_bandeja": False,
         # control automático de licencias
         "auto_bloquear_reembolsos": True, "auto_reactivar": True, "avisar_al_bloquear": True,

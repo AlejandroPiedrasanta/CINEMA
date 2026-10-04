@@ -132,7 +132,8 @@ class Ventana(QMainWindow):
         cfg = self.cfg
         fijar_animaciones(cfg.get("animaciones", True), float(cfg.get("velocidad", 1.0) or 1.0))
         PRIVACIDAD["activa"] = bool(cfg.get("privacidad"))
-        PRIVACIDAD["claves"] = bool(cfg.get("privacidad_claves"))
+        for que in ("nombres", "correos", "claves"):
+            PRIVACIDAD[que] = bool(cfg.get(f"privacidad_{que}", True))
         alto = DENSIDADES.get(cfg.get("densidad", "normal"), DENSIDADES["normal"])
         if alto != TABLA["alto"]:
             TABLA["alto"] = alto
@@ -153,10 +154,19 @@ class Ventana(QMainWindow):
                 control.blockSignals(True)
                 control.setChecked(activa)
                 control.blockSignals(False)
+                if hasattr(control, "_cambiar"):     # el interruptor mueve la bolita aunque no emita señales
+                    control._cambiar(activa)
                 control.update()
         self.pintar(forzar=True)
         self.aviso("Modo privado activado" if activa else "Modo privado desactivado",
-                   "Los nombres y correos se ven ocultos." if activa else "", "info")
+                   self.texto_privacidad() if activa else "", "info")
+
+    def texto_privacidad(self) -> str:
+        partes = [que for que in ("nombres", "correos", "claves") if PRIVACIDAD.get(que)]
+        if not partes:
+            return "No hay nada marcado para ocultar: elígelo en Ajustes → Privacidad."
+        texto = partes[0] if len(partes) == 1 else ", ".join(partes[:-1]) + " y " + partes[-1]
+        return f"Se ocultan {texto} en toda la interfaz."
 
     def cambiar_tema(self, nombre: str):
         """Aplica el tema: la ventana se vuelve a construir con los nuevos colores y se funde con la anterior."""

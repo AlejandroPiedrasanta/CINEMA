@@ -16,7 +16,7 @@ Funciona con **Lemon Squeezy, Gumroad, Polar.sh y Hotmart** (ventas). Opcionalme
   en todas las ventanas y diálogos. Se arrastran por la barra y se redimensionan por los bordes.
 - **Pestaña Ajustes**: tamaño de la interfaz (80 %–200 %), estilos (Cinema, Violeta, Medianoche,
   Grafito, Oro, Claro), velocidad de las animaciones y modo privado. Abajo: *Creado por Cinema Productions*.
-- **Modo privado** (botón 👁 en la barra): oculta nombres y correos en todo el panel, ideal para
+- **Modo privado** (botón 👁 o *Ajustes → Privacidad*): elige ocultar **nombres, correos y claves de licencia** en todo el panel, ideal para
   grabar pantalla o hacer capturas.
 - **Polar.sh** conectado a la API (claves de licencia, activaciones, pedidos y reembolsos).
 - **Más control sobre los compradores**: ficha de cada persona con compras, licencias, equipos,
