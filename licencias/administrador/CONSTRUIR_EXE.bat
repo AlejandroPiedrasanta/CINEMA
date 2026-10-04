@@ -8,7 +8,7 @@ where py >nul 2>nul || set PY=python
 
 echo.
 echo  [1/2] Instalando PySide6 y PyInstaller...
-%PY% -m pip install --upgrade --quiet pyside6 pyinstaller
+%PY% -m pip install --upgrade --quiet -r ..\requirements.txt
 if errorlevel 1 goto error
 
 echo  [2/2] Creando el .exe (tarda 1-2 minutos)...

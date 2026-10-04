@@ -1,6 +1,6 @@
-"""Pruebas del sistema de licencias contra el simulador de Lemon Squeezy (no usa internet).
+"""Pruebas del sistema de licencias contra el simulador de Lemon Squeezy y Hotmart (no usa internet).
 
-    pip install pyside6
+    pip install -r licencias/requirements.txt
     python -m unittest discover -s licencias/pruebas -v
 """
 from __future__ import annotations
@@ -21,11 +21,17 @@ RAIZ = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(RAIZ / "programa"), str(RAIZ / "administrador"), str(Path(__file__).parent)]
 
 import administrador_licencias as adm  # noqa: E402
+import interfaz  # noqa: E402
 import licencia_cliente as cli  # noqa: E402
-import simulador_lemonsqueezy as sim  # noqa: E402
+import plataformas as plat  # noqa: E402
+import simulador as sim  # noqa: E402
 
 SERVIDOR = sim.iniciar()
-BASE = f"http://127.0.0.1:{SERVIDOR.server_address[1]}/v1/"
+RAIZ_SIM = f"http://127.0.0.1:{SERVIDOR.server_address[1]}"
+BASE = RAIZ_SIM + "/v1/"
+CFG_LS = {"api_key": sim.API_KEY, "tienda_id": sim.TIENDA, "tienda_nombre": "Mi Tienda",
+          "producto_id": sim.PRODUCTO, "moneda": "USD"}
+CFG_HM = {"client_id": sim.HM_ID, "client_secret": sim.HM_SECRETO}
 
 
 class Base(unittest.TestCase):
@@ -39,11 +45,17 @@ class Base(unittest.TestCase):
             mock.patch.object(cli, "_CARPETA", self.carpeta),
             mock.patch.object(cli, "_ARCHIVO", self.carpeta / "licencia.dat"),
             mock.patch.object(cli, "_id_bruto_equipo", lambda: "equipo-de-pruebas-1"),
-            mock.patch.object(adm, "API_BASE", BASE),
+            mock.patch.object(plat, "LS_API", BASE),
+            mock.patch.object(plat, "HOTMART_AUTH", RAIZ_SIM + "/security/oauth/token"),
+            mock.patch.object(plat, "HOTMART_API", {False: RAIZ_SIM, True: RAIZ_SIM}),
+            mock.patch.object(adm, "CARPETA_CONFIG", self.carpeta / "admin"),
+            mock.patch.object(adm, "ARCHIVO_CONFIG", self.carpeta / "admin" / "config.json"),
+            mock.patch.object(adm, "ARCHIVO_CONFIG_V2", self.carpeta / "admin" / "config_lemonsqueezy.json"),
         ]
         for p in self.parches:
             p.start()
-        self.api = adm.Api(sim.API_KEY)
+        self.api = plat.LemonSqueezy(sim.API_KEY)
+        self.hm = plat.Hotmart(sim.HM_ID, sim.HM_SECRETO)
 
     def tearDown(self):
         for p in self.parches:
@@ -76,11 +88,9 @@ class ProgramaCliente(Base):
         self.assertEqual(sim.DATOS.licencias[lic["id"]]["instances_count"], 1)
         nombre = next(iter(sim.DATOS.instancias.values()))["name"]
         self.assertTrue(nombre.endswith(" · " + cli.obtener_id_equipo()))
-
         r = cli.comprobar()
         self.assertTrue(r.ok, r.mensaje)
         self.assertEqual(r.codigo, "activa")
-
         # Volver a escribir la misma clave no gasta otro equipo.
         self.assertTrue(cli.activar(lic["key"]).ok)
         self.assertEqual(sim.DATOS.licencias[lic["id"]]["instances_count"], 1)
@@ -101,16 +111,12 @@ class ProgramaCliente(Base):
     def test_bloqueo_vencimiento_y_sin_internet(self):
         lic = sim.DATOS.vender()
         self.assertTrue(cli.activar(lic["key"]).ok)
-
         self.api.editar_licencia(lic["id"], {"disabled": True})
-        r = cli.comprobar()
-        self.assertEqual(r.codigo, "bloqueada", r.mensaje)
+        self.assertEqual(cli.comprobar().codigo, "bloqueada")
         with mock.patch.object(cli, "_API", "http://127.0.0.1:9/v1/licenses/"):
             self.assertFalse(cli.comprobar().ok, "tras un bloqueo no debe quedar el modo sin conexión")
-
         self.api.editar_licencia(lic["id"], {"disabled": False})
         self.assertTrue(cli.comprobar().ok)
-
         self.api.editar_licencia(lic["id"], {"expires_at": "2020-01-01T00:00:00.000000Z"})
         r = cli.comprobar()
         self.assertEqual(r.codigo, "vencida")
@@ -156,8 +162,7 @@ class ProgramaCliente(Base):
 
     def test_clave_de_otra_tienda_o_producto(self):
         ajena = sim.DATOS.vender(tienda=999)
-        r = cli.activar(ajena["key"])
-        self.assertEqual(r.codigo, "otra_tienda")
+        self.assertEqual(cli.activar(ajena["key"]).codigo, "otra_tienda")
         self.assertEqual(sim.DATOS.licencias[ajena["id"]]["instances_count"], 0, "debe devolver el equipo")
         otro_producto = sim.DATOS.vender(producto=555)
         self.assertEqual(cli.activar(otro_producto["key"]).codigo, "otra_tienda")
@@ -178,29 +183,36 @@ class ProgramaCliente(Base):
         self.assertIsNone(cli.licencia_guardada())
 
 
-class Administrador(Base):
+class LemonSqueezyApi(Base):
     def test_api_key_incorrecta(self):
-        with self.assertRaises(adm.ErrorApi) as e:
-            adm.Api("mala").conectar()
+        with self.assertRaises(plat.ErrorApi) as e:
+            plat.LemonSqueezy("mala").conectar()
         self.assertIn("API key", str(e.exception))
 
-    def test_conectar_y_leer_todo(self):
+    def test_conectar_resumen(self):
+        sim.DATOS.vender()
         r = self.api.conectar()
         self.assertEqual(r["usuario"]["name"], "Alejandro")
         self.assertEqual(r["tiendas"][0]["id"], sim.TIENDA)
+        self.assertEqual(r["tienda"]["licencias"], 1)
+        self.assertEqual(r["tienda"]["ventas"], 1)
+        self.assertEqual(r["tienda"]["variantes"][0]["producto"], "Resolve Creator Subtitles")
+
+    def test_datos(self):
         lic = sim.DATOS.vender()
         sim.DATOS.vender(tienda=999)
         self.assertTrue(cli.activar(lic["key"]).ok)
-        todo = self.api.todo(sim.TIENDA, sim.PRODUCTO)
-        self.assertEqual([l["id"] for l in todo["licencias"]], [lic["id"]])
-        self.assertEqual(todo["licencias"][0]["status"], "active")
-        self.assertEqual(len(todo["instancias"]), 1)
-        self.assertEqual(len(todo["ventas"]), 1)
+        d = self.api.datos(sim.TIENDA, sim.PRODUCTO)
+        self.assertEqual([l["id"] for l in d["licencias"]], [lic["id"]])
+        self.assertEqual(d["licencias"][0]["status"], "active")
+        self.assertEqual(len(d["instancias"]), 1)
+        v = d["ventas"][0]
+        self.assertEqual((v["plataforma"], v["estado"], v["valida"], v["total"]), ("lemonsqueezy", "Pagada", True, 19.0))
 
     def test_paginacion(self):
         for _ in range(230):
             sim.DATOS.vender()
-        self.assertEqual(len(self.api.todo(sim.TIENDA)["licencias"]), 230)
+        self.assertEqual(len(self.api.datos(sim.TIENDA)["licencias"]), 230)
 
     def test_editar_licencia(self):
         lic = sim.DATOS.vender()
@@ -211,33 +223,105 @@ class Administrador(Base):
     def test_enlaces_de_compra(self):
         venta = {"variante_id": sim.VARIANTE, "cliente": "Luis", "correo": "luis@example.com",
                  "telefono": "50255551234", "precio": "normal", "centavos": 0, "expira": None}
-        url = self.api.crear_enlace(sim.TIENDA, venta)
-        self.assertTrue(url.startswith("https://"))
+        self.assertTrue(self.api.crear_enlace(sim.TIENDA, venta).startswith("https://"))
         atributos = sim.DATOS.checkouts[-1]["data"]["attributes"]
         self.assertEqual(atributos["checkout_data"], {"name": "Luis", "email": "luis@example.com"})
         self.assertNotIn("custom_price", atributos)
-
         self.api.crear_enlace(sim.TIENDA, venta | {"precio": "especial", "centavos": 1250})
         self.assertEqual(sim.DATOS.checkouts[-1]["data"]["attributes"]["custom_price"], 1250)
-
         self.api.crear_enlace(sim.TIENDA, venta | {"precio": "gratis", "correo": "", "cliente": ""})
         cupon = sim.DATOS.descuentos[-1]["data"]
-        self.assertEqual(cupon["attributes"]["amount"], 100)
-        self.assertEqual(cupon["attributes"]["max_redemptions"], 1)
+        self.assertEqual((cupon["attributes"]["amount"], cupon["attributes"]["max_redemptions"]), (100, 1))
         self.assertEqual(cupon["relationships"]["variants"]["data"][0]["id"], str(sim.VARIANTE))
         self.assertEqual(sim.DATOS.checkouts[-1]["data"]["attributes"]["checkout_data"],
                          {"discount_code": cupon["attributes"]["code"]})
 
-    def test_variantes(self):
-        v = self.api.variantes(sim.TIENDA)
-        self.assertEqual(v[0]["producto"], "Resolve Creator Subtitles")
-
     def test_datos_para_programa(self):
-        texto = adm.datos_para_programa({"tienda_id": 5, "producto_id": 7, "url_compra": "https://x/buy/1"})
         espacio = {}
-        exec(texto, espacio)
+        exec(adm.datos_para_programa({"tienda_id": 5, "producto_id": 7, "url_compra": "https://x/buy/1"}), espacio)
         self.assertEqual((espacio["TIENDA_ID"], espacio["PRODUCTOS_ID"], espacio["URL_COMPRA"]),
                          (5, (7,), "https://x/buy/1"))
+
+
+class HotmartApi(Base):
+    def test_credenciales_incorrectas(self):
+        with self.assertRaises(plat.ErrorApi) as e:
+            plat.Hotmart(sim.HM_ID, "otro").conectar()
+        self.assertIn("rechazó las credenciales", str(e.exception))
+
+    def test_basic_manual_o_calculado(self):
+        import base64
+        basic = base64.b64encode(f"{sim.HM_ID}:{sim.HM_SECRETO}".encode()).decode()
+        for valor in ("", basic, "Basic " + basic):
+            self.assertEqual(plat.Hotmart(sim.HM_ID, sim.HM_SECRETO, valor).token()["access_token"], sim.HM_TOKEN)
+
+    def test_ventas_y_resumen(self):
+        sim.DATOS.vender_hotmart(cliente="Lucía", correo="lucia@x.com")
+        sim.DATOS.vender_hotmart(cliente="Lucía", correo="LUCIA@x.com", estado="COMPLETE")
+        sim.DATOS.vender_hotmart(cliente="Pedro", correo="pedro@x.com", estado="REFUNDED")
+        sim.DATOS.vender_hotmart(cliente="Rita", correo="rita@x.com", estado="CHARGEBACK")
+        sim.DATOS.vender_hotmart(cliente="Otro", correo="otro@x.com", estado="WAITING_PAYMENT")
+        for i in range(60):   # más de una página (max_results=50)
+            sim.DATOS.vender_hotmart(cliente=f"C{i}", correo=f"c{i}@x.com")
+        r = self.hm.conectar()
+        self.assertEqual(r["entorno"], "Producción")
+        self.assertEqual(r["productos"][0]["id"], sim.HM_PRODUCTO)
+        self.assertEqual(r["ventas_validas"], 62)
+        self.assertEqual(r["compradores"], 61)          # Lucía compró dos veces
+        self.assertEqual(r["reembolsos"], 2)
+        self.assertAlmostEqual(r["ingresos"]["BRL"], 62 * 297.0)
+        v = next(x for x in self.hm.ventas(max_edad=0) if x["cliente"] == "Pedro")
+        self.assertEqual((v["estado"], v["valida"], v["plataforma"]), ("Reembolsada", False, "hotmart"))
+
+    def test_token_se_reutiliza_y_cache(self):
+        sim.DATOS.vender_hotmart()
+        self.hm.ventas(max_edad=0)
+        self.hm.ventas(max_edad=0)
+        self.assertEqual(sim.DATOS.hotmart_tokens, 1)
+        sim.DATOS.vender_hotmart(correo="nueva@x.com")
+        self.assertEqual(len(self.hm.ventas(max_edad=60)), 1, "dentro de 60 s usa la copia guardada")
+        self.assertEqual(len(self.hm.ventas(max_edad=0)), 2)
+
+    def test_filtro_producto_y_sin_fechas(self):
+        sim.DATOS.vender_hotmart(producto=sim.HM_PRODUCTO)
+        sim.DATOS.vender_hotmart(producto=9999, correo="b@x.com")
+        self.assertEqual(len(self.hm.ventas(sim.HM_PRODUCTO, max_edad=0)), 1)
+        sim.DATOS.hotmart_rechaza_fechas = True
+        self.assertEqual(len(self.hm.ventas(max_edad=0)), 2, "si Hotmart no acepta fechas, reintenta sin ellas")
+
+
+class Modelo(Base):
+    def test_personas_en_varias_plataformas(self):
+        lic = sim.DATOS.vender(cliente="Ana", correo="ana@x.com")
+        sim.DATOS.vender_hotmart(cliente="Ana López", correo="ANA@x.com")
+        sim.DATOS.vender_hotmart(cliente="Pedro", correo="pedro@x.com", estado="REFUNDED")
+        sim.DATOS.vender_hotmart(cliente="Lu", correo="lu@x.com")
+        self.assertTrue(cli.activar(lic["key"]).ok)
+        res = adm.cargar_todo({"lemonsqueezy": self.api, "hotmart": self.hm},
+                              {"plataformas": {"lemonsqueezy": CFG_LS, "hotmart": CFG_HM}})
+        m = adm.construir_modelo(res)
+        personas = {p["clave"]: p for p in m["personas"]}
+        self.assertEqual(sum(p["tiene"] for p in m["personas"]), 2)        # Ana y Lu
+        self.assertEqual(personas["ana@x.com"]["plataformas"], {"lemonsqueezy", "hotmart"})
+        self.assertEqual(personas["ana@x.com"]["equipos"], 1)
+        self.assertEqual(personas["pedro@x.com"]["estado"], "Reembolsada")
+        self.assertEqual(m["ventas_30"], 3)
+        self.assertEqual(sum(m["serie"]["hotmart"]), 2)
+
+    def test_error_en_una_plataforma_no_bloquea_la_otra(self):
+        sim.DATOS.vender()
+        res = adm.cargar_todo({"lemonsqueezy": self.api, "hotmart": plat.Hotmart("x", "y")},
+                              {"plataformas": {"lemonsqueezy": CFG_LS, "hotmart": {}}})
+        self.assertIn("error", res["hotmart"])
+        self.assertEqual(len(res["lemonsqueezy"]["licencias"]), 1)
+
+    def test_migra_configuracion_v2(self):
+        import json
+        adm.CARPETA_CONFIG.mkdir(parents=True, exist_ok=True)
+        adm.ARCHIVO_CONFIG_V2.write_text(json.dumps({"api_key": "k", "tienda_id": 5, "nombre_app": "X"}))
+        cfg = adm.cargar_config()
+        self.assertEqual(cfg["plataformas"]["lemonsqueezy"]["tienda_id"], 5)
+        self.assertEqual(cfg["nombre_app"], "X")
 
 
 class Ventanas(Base):
@@ -255,61 +339,121 @@ class Ventanas(Base):
             time.sleep(0.02)
         self.fail("tiempo de espera agotado")
 
+    def ventana(self, plataformas: dict):
+        cfg = adm.config_base()
+        cfg["plataformas"] |= plataformas
+        adm.guardar_config(cfg)
+        return adm.Ventana()
+
+    def test_sin_conexion_muestra_bienvenida(self):
+        v = self.ventana({})
+        self.app.processEvents()
+        self.assertEqual(v.paginas[0].pila.currentIndex(), 0)
+        self.assertTrue(v.paginas[2].sin_ls.isVisibleTo(v.paginas[2]))
+        v.close()
+
     def test_panel_completo(self):
-        lic = sim.DATOS.vender(cliente="Ana")
+        lic = sim.DATOS.vender(cliente="Ana", correo="ana@x.com")
         self.assertTrue(cli.activar(lic["key"]).ok)
-        adm.guardar_config(adm.cargar_config() | {"api_key": sim.API_KEY, "tienda_id": sim.TIENDA,
-                                                  "tienda_nombre": "Mi Tienda", "producto_id": sim.PRODUCTO})
-        v = adm.Ventana()
-        self.esperar(lambda: v.tl.rowCount() == 1)
-        self.assertEqual(v.te.rowCount(), 1)
-        self.assertEqual(v.tv.rowCount(), 1)
-        self.assertEqual(v.ta.rowCount(), 2)   # venta + activación
-        self.assertEqual(v.t_act.valor.text(), "1")
+        sim.DATOS.vender_hotmart(cliente="Lu", correo="lu@x.com")
+        v = self.ventana({"lemonsqueezy": CFG_LS, "hotmart": CFG_HM})
+        personas, licencias, equipos, ventas = v.paginas[1], v.paginas[2], v.paginas[3], v.paginas[4]
+        self.esperar(lambda: licencias.t.rowCount() == 1 and ventas.t.rowCount() == 2)
+        self.assertEqual(v.paginas[0].pila.currentIndex(), 1)
+        self.esperar(lambda: v.paginas[0].k_personas.valor.text() == "2")
+        self.assertEqual(personas.t.rowCount(), 2)
+        self.assertEqual(equipos.t.rowCount(), 1)
+        self.assertEqual(v.paginas[5].t.rowCount(), 3)   # 2 ventas + 1 activación
 
-        # Una venta nueva llega como notificación
-        sim.DATOS.vender(cliente="Beto")
+        # búsqueda global
+        v.buscar.setText("lu@x")
+        self.assertEqual(personas.t.rowCount(), 1)
+        v.buscar.clear()
+
+        # una venta nueva en Hotmart llega como aviso
+        sim.DATOS.vender_hotmart(cliente="Beto", correo="beto@x.com")
+        v.clientes["hotmart"]._cache = None
         v.refrescar()
-        self.esperar(lambda: v.tl.rowCount() == 2)
-        self.assertIn("●", v.tabs.tabText(v.TAB_ACTIVIDAD))
+        self.esperar(lambda: ventas.t.rowCount() == 3)
+        self.assertIn("●", v.nav.botones[5].text())
 
-        # Quitar el equipo desde el panel → aparece "Equipo desactivado"
-        v.te.selectRow(0)
-        with mock.patch.object(v, "confirmar", return_value=True):
-            v.quitar_equipo_seleccionado()
-        self.esperar(lambda: v.te.rowCount() == 0)
+        # panel de detalle de la licencia y quitar el equipo
+        v.ir_a(2)
+        licencias.t.selectRow(0)
+        self.esperar(lambda: licencias.panel.maximumWidth() == licencias.panel.ancho)
+        with mock.patch.object(adm, "confirmar", return_value=True):
+            v.quitar_equipo(v.modelo["lic_por_id"][lic["id"]], v.modelo["instancias"][0])
+        self.esperar(lambda: equipos.t.rowCount() == 0)
         self.assertTrue(any(e["tipo"] == "desactivacion" for e in v.eventos()))
         self.assertEqual(cli.comprobar().codigo, "desactivada")
 
-        # Bloquear desde el panel
-        v.tabs.setCurrentIndex(0)
-        fila = next(r for r in range(v.tl.rowCount()) if v.tl.item(r, 0).text() == "Ana")
-        v.tl.selectRow(fila)
-        with mock.patch.object(v, "confirmar", return_value=True):
-            v.alternar_bloqueo()
+        # bloquear
+        with mock.patch.object(adm, "confirmar", return_value=True):
+            v.alternar_bloqueo(v.modelo["lic_por_id"][lic["id"]])
         self.esperar(lambda: sim.DATOS.licencias[lic["id"]]["disabled"])
-        self.esperar(lambda: v.b_bloq.text() == "Desbloquear")
+        self.esperar(lambda: licencias.b_bloquear.text() == "Desbloquear")
         v.close()
 
-    def test_dialogos(self):
-        cfg = adm.cargar_config() | {"api_key": sim.API_KEY, "tienda_id": sim.TIENDA, "producto_id": sim.PRODUCTO}
-        d = adm.DialogoConfig(cfg)
-        self.esperar(lambda: d.producto.count() == 2 and "✔" in d.estado.text())
-        self.assertIn(f"TIENDA_ID = {sim.TIENDA}", d.datos.toPlainText())
-        self.assertIn(f"PRODUCTOS_ID = ({sim.PRODUCTO},)", d.datos.toPlainText())
-        self.assertIn("buy/abc", d.datos.toPlainText())
+    def test_conectar_y_ventana_de_informacion(self):
+        sim.DATOS.vender()
+        v = self.ventana({})
+        conectar = adm.DialogoConectar(v)
+        conectar._elegir("lemonsqueezy")
+        conectar._mostrar_formulario("lemonsqueezy")
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        conectar.show()
+        conectar.api_key.setText("mala")
+        QTest.keyClick(conectar.api_key, Qt.Key.Key_Return)      # Enter conecta y no vuelve atrás
+        self.assertEqual(conectar.pila.currentIndex(), 1)
+        self.esperar(lambda: "API key" in conectar.error.text())
+        conectar.api_key.setText(sim.API_KEY)
+        conectar.conectar()
+        self.esperar(lambda: conectar.resultado is not None)
+        clave, datos, resumen, cliente = conectar.resultado
+        r = adm.DialogoResumen(clave, cliente, resumen, datos, v)
+        self.assertEqual(r.modo.text(), "MODO PRUEBA")
+        self.assertIn(f"TIENDA_ID = {sim.TIENDA}", r.codigo.text())
+        self.assertIn(f"PRODUCTOS_ID = ({sim.PRODUCTO},)", r.codigo.text())
+        r.guardar()
+        v._guardar_conexion(clave, r.datos)
+        self.assertIn("lemonsqueezy", v.clientes)
+        self.assertEqual(adm.cargar_config()["plataformas"]["lemonsqueezy"]["tienda_id"], sim.TIENDA)
 
+        sim.DATOS.vender_hotmart()
+        hm = adm.DialogoConectar(v, "hotmart")
+        hm.client_id.setText(sim.HM_ID)
+        hm.client_secret.setText(sim.HM_SECRETO)
+        hm.conectar()
+        self.esperar(lambda: hm.resultado is not None)
+        plataforma, datos_hm, resumen_hm, cliente_hm = hm.resultado
+        r2 = adm.DialogoResumen(plataforma, cliente_hm, resumen_hm, datos_hm, v)
+        self.assertEqual(r2.modo.text(), "PRODUCCIÓN")
+        r2.guardar()
+        v._guardar_conexion("hotmart", r2.datos)
+        self.assertEqual(set(v.clientes), {"lemonsqueezy", "hotmart"})
+        with mock.patch.object(adm, "confirmar", return_value=True):
+            v.desconectar("hotmart")
+        self.assertEqual(set(v.clientes), {"lemonsqueezy"})
+        v.close()
+
+    def test_dialogos_y_animaciones(self):
         e = adm.DialogoEditar({"activation_limit": 2, "expires_at": None, "user_name": "Ana"})
         self.assertEqual(e.datos(), {"activation_limit": 2, "expires_at": None})
         e._sumar(30)
         self.assertIsNotNone(e.datos()["expires_at"])
-
-        venta = adm.DialogoVenta(self.api.variantes(sim.TIENDA), "USD")
+        venta = adm.DialogoVenta(self.api.variantes(sim.TIENDA), "USD", previo={"cliente": "Lu", "precio": "gratis"})
+        self.assertEqual(venta.datos()["precio"], "gratis")
         venta.precio.setCurrentIndex(1)
         venta.monto.setValue(12.5)
         self.assertEqual(venta.datos()["centavos"], 1250)
         adm.DialogoEnlace("https://x", venta.datos(), "App")
-
+        contador = interfaz.ContadorAnimado()
+        contador.fijar(42)
+        self.esperar(lambda: contador.text() == "42", 3)
+        with mock.patch.dict(interfaz.ANIMACIONES, {"activas": False}):
+            contador.fijar(7)
+            self.assertEqual(contador.text(), "7")
         self.assertIsNotNone(cli._DialogoActivacion(cli.Resultado(False, "sin_licencia", "")))
         lic = sim.DATOS.vender()
         self.assertTrue(cli.activar(lic["key"]).ok)

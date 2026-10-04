@@ -1,0 +1,3 @@
+# Librerías del Administrador de Licencias y de las pruebas (versiones más recientes probadas)
+PySide6-Essentials>=6.11.2
+pyinstaller>=6.22.3

@@ -1,12 +1,14 @@
-"""Servidor falso de Lemon Squeezy para probar sin internet ni compras reales.
+"""Servidor falso de Lemon Squeezy y Hotmart para probar sin internet ni compras reales.
 
-Imita los endpoints que usan licencia_cliente.py y administrador_licencias.py:
+Imita los endpoints que usan licencia_cliente.py y el Administrador:
   - API de licencias: POST /v1/licenses/activate | validate | deactivate (sin API key)
   - API principal (JSON:API con Bearer): users/me, stores, products, variants, license-keys,
     license-key-instances, orders, checkouts, discounts
+  - Hotmart: POST /security/oauth/token, GET /payments/api/v1/sales/history, GET /products/api/v1/products
 """
 from __future__ import annotations
 
+import base64
 import json
 import threading
 import urllib.parse
@@ -18,6 +20,9 @@ API_KEY = "clave-de-prueba"
 TIENDA = 111
 PRODUCTO = 222
 VARIANTE = 333
+HM_ID, HM_SECRETO = "hotmart-id", "hotmart-secreto"
+HM_PRODUCTO = 4444
+HM_TOKEN = "token-hotmart-de-prueba"
 
 
 def ahora() -> str:
@@ -32,6 +37,9 @@ class Datos:
         self.ventas: dict[int, dict] = {}
         self.checkouts: list[dict] = []
         self.descuentos: list[dict] = []
+        self.hotmart: list[dict] = []
+        self.hotmart_rechaza_fechas = False
+        self.hotmart_tokens = 0
         self._id = 1000
 
     def nuevo_id(self) -> int:
@@ -59,6 +67,19 @@ class Datos:
             "status_formatted": "Inactive", "expires_at": expira, "created_at": ahora(), "updated_at": ahora(),
             "test_mode": test_mode}
         return {"id": id_, **self.licencias[id_]}
+
+    def vender_hotmart(self, cliente="Lucía Gómez", correo="lucia@example.com", estado="APPROVED",
+                       producto=HM_PRODUCTO, valor=297.0, moneda="BRL", dias_atras=0) -> dict:
+        ms = int((datetime.now(timezone.utc).timestamp() - dias_atras * 86400) * 1000)
+        item = {"product": {"id": producto, "name": "Resolve Creator Subtitles"},
+                "buyer": {"name": cliente, "email": correo, "ucode": str(uuid.uuid4())},
+                "producer": {"name": "Alejandro", "ucode": "x"},
+                "purchase": {"transaction": f"HP{self.nuevo_id()}{len(self.hotmart)}", "order_date": ms,
+                             "approved_date": ms, "status": estado, "is_subscription": False,
+                             "price": {"value": valor, "currency_code": moneda},
+                             "payment": {"method": "CREDIT_CARD", "installments_number": 1}}}
+        self.hotmart.append(item)
+        return item
 
     def por_clave(self, clave: str):
         return next(((i, l) for i, l in self.licencias.items() if l["key"] == clave), (None, None))
@@ -175,16 +196,54 @@ class Manejador(BaseHTTPRequestHandler):
                                                 "perPage": tam, "to": len(pagina), "total": len(objetos)}},
                               "data": [{"type": tipo, "id": str(i), "attributes": o} for i, o in pagina]})
 
+    # ------------------------------------------------------------ Hotmart
+    def _hotmart_token(self, q: dict):
+        basic = "Basic " + base64.b64encode(f"{HM_ID}:{HM_SECRETO}".encode()).decode()
+        if (self.headers.get("Authorization") != basic or q.get("client_id", [""])[0] != HM_ID
+                or q.get("client_secret", [""])[0] != HM_SECRETO
+                or q.get("grant_type", [""])[0] != "client_credentials"):
+            return self._responder(401, {"error": "invalid_client", "error_description": "Bad credentials"})
+        DATOS.hotmart_tokens += 1
+        self._responder(200, {"access_token": HM_TOKEN, "token_type": "bearer", "expires_in": 86400,
+                              "scope": "read write", "jti": "x"})
+
+    def _hotmart_get(self, ruta: str, q: dict):
+        if self.headers.get("Authorization") != f"Bearer {HM_TOKEN}":
+            return self._responder(401, {"error": "invalid_token"})
+        uno = {k: v[0] for k, v in q.items()}
+        if ruta == "/products/api/v1/products":
+            return self._responder(200, {"items": [{"id": HM_PRODUCTO, "name": "Resolve Creator Subtitles",
+                                                    "ucode": "abc", "status": "ACTIVE", "format": "SOFTWARE"}],
+                                         "page_info": {"total_results": 1, "results_per_page": 50}})
+        if ruta != "/payments/api/v1/sales/history":
+            return self._responder(404, {"message": "not found"})
+        if DATOS.hotmart_rechaza_fechas and "start_date" in uno:
+            return self._responder(400, {"error": "invalid_parameter", "message": "start_date"})
+        estado = uno.get("transaction_status")
+        items = [i for i in DATOS.hotmart if (i["purchase"]["status"] == estado if estado
+                                              else i["purchase"]["status"] in ("APPROVED", "COMPLETE"))]
+        if "product_id" in uno:
+            items = [i for i in items if str(i["product"]["id"]) == uno["product_id"]]
+        tam = int(uno.get("max_results", 10))
+        desde = int(uno.get("page_token", 0))
+        pagina = items[desde:desde + tam]
+        siguiente = str(desde + tam) if desde + tam < len(items) else None
+        self._responder(200, {"items": pagina, "page_info": {"total_results": len(items), "results_per_page": tam,
+                                                             **({"next_page_token": siguiente} if siguiente else {})}})
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
+        if url.path.startswith(("/payments/", "/products/api/")):
+            with DATOS.lock:
+                return self._hotmart_get(url.path, q)
         ruta = url.path.removeprefix("/v1/")
         if not self._autorizado():
             return
         with DATOS.lock:
             if ruta == "users/me":
-                return self._responder(200, {"data": {"type": "users", "id": "1", "attributes": {
-                    "name": "Alejandro", "email": "vendedor@example.com"}}})
+                return self._responder(200, {"meta": {"test_mode": True}, "data": {"type": "users", "id": "1",
+                                             "attributes": {"name": "Alejandro", "email": "vendedor@example.com"}}})
             if ruta == "stores":
                 return self._lista("stores", [(TIENDA, {"name": "Mi Tienda", "url": "https://mitienda.lemonsqueezy.com",
                                                         "currency": "USD"})], q)
@@ -220,7 +279,10 @@ class Manejador(BaseHTTPRequestHandler):
         self._responder(404, {"errors": [{"status": "404", "title": "Not Found"}]})
 
     def do_POST(self):
-        ruta = urllib.parse.urlparse(self.path).path.removeprefix("/v1/")
+        url = urllib.parse.urlparse(self.path)
+        if url.path == "/security/oauth/token":
+            return self._hotmart_token(urllib.parse.parse_qs(url.query))
+        ruta = url.path.removeprefix("/v1/")
         if ruta.startswith("licenses/"):
             return self._licencias(ruta.split("/")[1])
         if not self._autorizado():
