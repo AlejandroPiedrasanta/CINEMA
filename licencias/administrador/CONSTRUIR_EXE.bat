@@ -1,11 +1,15 @@
 @echo off
 chcp 65001 >nul
-title Construir Administrador de Licencias
+title Cinema Productions - Construir Administrador de Licencias
 cd /d "%~dp0"
 
 set PY=py
 where py >nul 2>nul || set PY=python
 
+echo.
+echo  ==========================================================
+echo   CINEMA PRODUCTIONS  -  Administrador de Licencias 5.0
+echo  ==========================================================
 echo.
 echo  [1/2] Instalando PySide6 y PyInstaller...
 %PY% -m pip install --upgrade --quiet -r ..\requirements.txt
@@ -17,6 +21,7 @@ if errorlevel 1 goto error
 
 echo.
 echo  LISTO: dist\Administrador de Licencias.exe
+echo  Creado por Cinema Productions.
 explorer dist
 pause
 exit /b 0

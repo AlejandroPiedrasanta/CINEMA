@@ -1,134 +1,158 @@
-# Sistema de licencias — Resolve Creator Subtitles (v4)
+# Administrador de Licencias v5 — Cinema Productions
 
-```
-licencias/
-├── Instalar Administrador de Licencias 4.0.0.exe   ← INSTALADOR para Windows (solo para ti)
-├── requirements.txt                 ← librerías (PySide6 6.11 y PyInstaller 6.22)
-├── administrador/
-│   ├── administrador_licencias.py   ← ventana principal del panel
-│   ├── interfaz.py                  ← diseño, colores y animaciones
-│   ├── plataformas.py               ← conexión con Lemon Squeezy, Hotmart y Gumroad
-│   ├── administrador.spec           ← receta para crear el ejecutable
-│   ├── version_info.txt             ← nombre, versión y empresa que muestra Windows
-│   ├── CONSTRUIR_EXE.bat            ← crea un .exe portátil (sin instalar)
-│   ├── INICIAR_MAC_LINUX.sh         ← abre (o construye) el panel en macOS y Linux
-│   └── icono.ico
-├── instalador/
-│   ├── instalador.nsi               ← receta del instalador (NSIS)
-│   ├── CONSTRUIR_INSTALADOR.bat     ← vuelve a crear el instalador (doble clic)
-│   ├── crear_imagenes.py            ← dibuja los banners y el icono
-│   └── imagenes/                    ← banners del instalador e icono
-├── programa/
-│   ├── licencia_cliente.py          ← va DENTRO de tu programa (no lleva ninguna clave secreta)
-│   └── ejemplo_integracion.py       ← ejemplo de cómo conectarlo en main()
-└── pruebas/
-    ├── simulador.py                 ← Lemon Squeezy, Hotmart y Gumroad falsos para probar sin comprar
-    └── test_licencias.py            ← 40 pruebas automáticas
-```
+Sistema completo para vender tu programa con licencias: un **panel de escritorio** para ver y
+controlar a tus compradores, y un **kit (API de programa) `cinema_licencias`** para meter
+licencias en cualquier programa de Python en 3 líneas.
 
-## Qué hay de nuevo en la versión 4
+Funciona con **Lemon Squeezy, Gumroad, Polar.sh y Hotmart** (ventas). Opcionalmente, con un
+**servidor de control gratuito en Supabase** para avisos, bloqueos y tiempo de uso.
 
-- **Gumroad**: el panel muestra sus ventas, compradores y **claves de licencia** (bloquear,
-  desbloquear y liberar un uso), y tu programa acepta las claves de Gumroad además de las de
-  Lemon Squeezy.
-- **Instalador completo para Windows** con banners: bienvenida, carpeta, componentes, progreso y
-  final. Crea accesos directos en el **menú Inicio** y (opcional) en el **escritorio**, y queda en
-  **Configuración → Aplicaciones** con su desinstalador.
-- **Más animaciones**: pantalla de carga con el logo, tarjetas que suben una tras otra, gráfico que
-  crece en ola, brillo mientras cargan los datos, onda al pulsar botones, tarjetas que se levantan
-  al pasar el ratón, fondo de bienvenida con luces en movimiento, palomita animada al conectar,
-  interruptores deslizantes y destello cuando llega actividad nueva. Se pueden apagar en
-  *Conexiones → Ajustes*.
+*Creado por Cinema Productions.*
 
-## Paso 1 — Instalar el Administrador (Windows)
+## Qué hay de nuevo en la versión 5
 
-Doble clic en **`Instalar Administrador de Licencias 4.0.0.exe`** → *Siguiente* → *Siguiente* →
-*Instalar* → *Terminar*. Requiere Windows 10 (versión 1903 o más nueva) u 11, de 64 bits.
+- **Marca Cinema Productions** en el panel, el instalador, las carpetas, los comandos y el kit.
+- **Ventanas sin el marco de Windows**: botones de minimizar, maximizar y cerrar dibujados a mano,
+  en todas las ventanas y diálogos. Se arrastran por la barra y se redimensionan por los bordes.
+- **Pestaña Ajustes**: tamaño de la interfaz (80 %–200 %), estilos (Cinema, Violeta, Medianoche,
+  Grafito, Oro, Claro), velocidad de las animaciones y modo privado. Abajo: *Creado por Cinema Productions*.
+- **Modo privado** (botón 👁 en la barra): oculta nombres y correos en todo el panel, ideal para
+  grabar pantalla o hacer capturas.
+- **Polar.sh** conectado a la API (claves de licencia, activaciones, pedidos y reembolsos).
+- **Más control sobre los compradores**: ficha de cada persona con compras, licencias, equipos,
+  **tiempo de uso**, última vez que abrió el programa, versión y sistema.
+- **Avisos y alertas**: envía un aviso a una licencia (informativo, advertencia o bloqueo). Si le
+  quitas la licencia, el cliente ve el aviso y el programa le pide licencia; si la vuelves a
+  activar, se reactiva sola.
+- **Reembolsos automáticos**: si una compra se reembolsa, el programa del cliente muestra un aviso
+  con cuenta atrás, **se cierra y pide licencia**. Si el reembolso se cancela, se reactiva.
+- **Más animaciones**: transiciones entre páginas, aurora en el inicio, tarjetas que se elevan,
+  cambio de tema con fundido, notificaciones deslizantes.
 
-> Como el instalador no está firmado, Windows puede mostrar "Windows protegió su PC":
+## Paso 1 — Instalar el Administrador
+
+**Windows 10/11 (64 bits):** doble clic en **`Instalar Administrador de Licencias 5.0.0.exe`** →
+*Siguiente* → *Instalar* → *Terminar*. Si tenías la versión 4, se reemplaza sola (tus credenciales
+se migran). Queda en *Inicio → Cinema Productions*.
+
+> El instalador no está firmado; si Windows muestra "Windows protegió su PC":
 > **Más información → Ejecutar de todas formas**.
 
-Para desinstalar: *Configuración → Aplicaciones → Administrador de Licencias → Desinstalar*.
-Tus credenciales se conservan, salvo que marques **"Borrar también mis credenciales y ajustes"**.
+El componente **"Kit para tu programa"** copia `cinema_licencias/`, ejemplos, el SQL del servidor y
+este LEEME a la carpeta de instalación.
 
-**macOS / Linux:** `bash administrador/INICIAR_MAC_LINUX.sh` (necesitas Python 3.10 o más nuevo).
+**macOS / Linux:** `bash administrador/INICIAR_MAC_LINUX.sh` (Python 3.10 o más nuevo).
 
 ## Paso 2 — Conectar tus plataformas
 
-En la pantalla de bienvenida pulsa **Conectar** en la plataforma que uses (puedes conectar las tres):
+En **Inicio** pulsa **Conectar** en la plataforma que uses (puedes conectar todas):
 
 | Plataforma | Qué pegar | Dónde se consigue |
 |---|---|---|
 | Lemon Squeezy | **API key** | app.lemonsqueezy.com → *Settings → API* → **+** |
-| Hotmart | **Client ID** y **Client Secret** | Hotmart → *Herramientas → Credenciales Hotmart* → crear credencial *API Hotmart* (marca **Sandbox** si son de pruebas) |
-| Gumroad | **Access token** | Gumroad → *Settings → Advanced → Applications* → crea una aplicación (en *Redirect URI* pon `http://127.0.0.1`) → **Generate access token** |
+| Gumroad | **Access token** | *Settings → Advanced → Applications* → crea una app (Redirect URI `http://127.0.0.1`) → **Generate access token** |
+| Polar.sh | **Organization Access Token** (`polar_oat_…`) | polar.sh → tu organización → *Settings → Developers → New token* (permisos de lectura/escritura de licencias, clientes, pedidos y beneficios). Marca **Sandbox** si es de pruebas. |
+| Hotmart | **Client ID** y **Client Secret** | *Herramientas → Credenciales Hotmart* |
 
-Al conectar aparece una ventana con toda la información de la cuenta. Elige el **producto** y pulsa
-**Guardar y continuar**. Las credenciales solo se guardan en tu computadora.
+Al conectar aparece una ventana con la información de la cuenta. Elige el producto (en Polar, el
+**beneficio de License Keys**) y pulsa **Guardar y continuar**. Las credenciales solo se guardan
+en tu computadora (`%APPDATA%\Cinema Productions\Administrador de Licencias`).
 
-## Paso 3 — Preparar tus productos
+## Paso 3 — Servidor de control (opcional, recomendado)
 
-- **Lemon Squeezy**: en la variante activa **"Generate license keys"** y el **límite de equipos**.
-- **Gumroad**: en tu producto activa **"Generate a unique license key per sale"**. Cada clave
-  cuenta "usos": tu programa suma uno al activarse (máximo `GUMROAD_MAX_EQUIPOS`) y tú puedes
-  **liberar un uso** desde el panel cuando un cliente cambie de computadora.
-- **Hotmart**: no genera claves. Para dar una licencia a un comprador de Hotmart usa
-  **🎁 Dar licencia** (crea un enlace gratis de Lemon Squeezy; requiere Lemon Squeezy conectado).
+Necesario para **avisos, bloqueos manuales, tiempo de uso y reactivación automática**.
 
-## Paso 4 — Conectar tu programa
+1. Crea un proyecto gratis en **supabase.com**.
+2. *SQL Editor* → pega el contenido de `servidor/supabase_cinema.sql` → **Run**.
+3. En el Administrador: **Inicio → Conectar el servidor de control** y pega la **URL** del proyecto
+   y la **clave secreta** (`sb_secret_…`, solo para el Administrador) y la **clave publicable**
+   (`sb_publishable_…`, la que va en tu programa).
 
-1. Copia `programa/licencia_cliente.py` junto a tu script principal.
-2. En *Conexiones → Datos para tu programa* pulsa **Copiar** y pega esas líneas en la sección
-   **CONFIGURACIÓN** de `licencia_cliente.py`. Ejemplo:
-   ```python
-   TIENDA_ID = 123456                      # Lemon Squeezy (0 si no lo usas)
-   PRODUCTOS_ID = (654321,)
-   URL_COMPRA = "https://tutienda.lemonsqueezy.com/buy/..."
-   GUMROAD_PRODUCTO_ID = "AbC123...=="     # Gumroad ("" si no lo usas)
-   URL_COMPRA_GUMROAD = "https://tunombre.gumroad.com/l/producto"
-   ```
-3. En `main()`, después de crear `QApplication` y antes de mostrar tu ventana:
-   ```python
-   from licencia_cliente import exigir_licencia, mostrar_mi_licencia
-   if not exigir_licencia():
-       sys.exit(0)
-   ```
-4. Añade **Ayuda → Mi licencia** (ver `ejemplo_integracion.py`).
+El programa del cliente solo puede **leer su propio estado y enviar su tiempo de uso**; nunca
+puede darse una licencia. Las claves se guardan como hash (`sha256`), no en texto.
 
-La ventana de activación muestra un botón de compra por cada tienda configurada. El programa
-reconoce solo la plataforma por el formato de la clave (las de Gumroad son 4 bloques de 8 caracteres).
+## Paso 4 — Meter licencias en tu programa (API de programa)
+
+1. En **Conexiones → Datos para tu programa** pulsa **Guardar archivo** → `cinema_licencias.json`.
+   (El Administrador nunca escribe claves secretas en ese archivo.)
+2. Copia la carpeta `programa/cinema_licencias/` y el `.json` junto a tu script.
+3. Agrega 3 líneas:
+
+```python
+from cinema_licencias import Licencias
+LICENCIAS = Licencias.desde_json("cinema_licencias.json")
+
+app = QApplication(sys.argv)
+if not LICENCIAS.exigir():      # sin licencia → ventana de activación (y botones de compra)
+    sys.exit(0)
+LICENCIAS.vigilar(ventana)      # avisos, bloqueos y reembolsos en vivo + tiempo de uso
+```
+
+Menú **Ayuda → Mi licencia**: `LICENCIAS.mostrar_mi_licencia(ventana)`.
+Ejemplos completos: `programa/ejemplo_integracion.py` (PySide6) y `programa/ejemplo_consola.py`
+(sin interfaz, usa `comprobar()` / `activar()` y devuelve `Resultado`).
+
+**Desde la terminal** (útil para scripts o programas en otros lenguajes):
+
+```
+python -m cinema_licencias estado  --config cinema_licencias.json --json
+python -m cinema_licencias activar CLAVE
+python -m cinema_licencias desactivar
+python -m cinema_licencias equipo
+```
+
+Código de salida: `0` licencia válida, `1` sin licencia, `2` error.
+
+¿Ya usabas `licencia_cliente.py` de la v4? Sigue funcionando igual (ahora por dentro usa
+`cinema_licencias`), así que tus clientes no tienen que activar de nuevo.
+
+El programa reconoce la tienda por el formato de la clave: Gumroad (4 bloques de 8), Lemon
+Squeezy (UUID) y Polar (con prefijo o UUID).
 
 ## Qué puedes hacer en el panel
 
 | Página | Para qué sirve |
 |---|---|
-| **Inicio** | Personas con el programa, licencias activas, equipos, ventas e ingresos de 30 días, gráfico por plataforma y actividad reciente. |
-| **Personas** | Cada comprador una sola vez en las tres plataformas: si tiene el programa, compras, licencia y equipos. |
-| **Licencias** | Claves de Lemon Squeezy y Gumroad. Lemon Squeezy: editar equipos/vencimiento, bloquear y quitar equipos. Gumroad: bloquear/desbloquear y liberar un uso. |
-| **Equipos** | Computadoras donde se activó el programa (Lemon Squeezy). |
-| **Ventas** | Ventas de las tres plataformas, con reembolsos, contracargos y disputas. |
-| **Actividad** | Ventas, reembolsos, activaciones y equipos desactivados, con aviso en pantalla. |
-| **Conexiones** | Estado de cada plataforma, datos para tu programa y ajustes. |
+| **Inicio** | Personas, licencias activas, equipos, ventas e ingresos, uso de hoy, gráfico por plataforma. |
+| **Personas** | Cada comprador una vez en todas las plataformas; ficha con tiempo de uso, equipos y avisos. |
+| **Licencias** | Bloquear, desbloquear, editar límites, quitar equipos, enviar avisos. |
+| **Equipos** | Computadoras activadas, sistema, versión y última conexión. |
+| **Uso** | Tiempo de uso por persona y por día (telemetría del servidor de control). |
+| **Ventas** | Ventas, reembolsos, contracargos y disputas de todas las plataformas. |
+| **Avisos** | Avisos enviados, leídos o pendientes; bloqueo/reactivación. |
+| **Actividad** | Ventas, reembolsos, activaciones; notificación en pantalla al llegar algo nuevo. |
+| **Conexiones** | Estado de cada plataforma y del servidor; datos para tu programa. |
+| **Ajustes** | Tamaño, estilo, animaciones, modo privado. *Creado por Cinema Productions.* |
+
+**Privacidad de tus clientes:** la telemetría solo envía tiempo de uso, versión, sistema y
+(opcional) el nombre del equipo. Puedes apagarla con `"telemetria": false` o
+`"enviar_nombre_equipo": false` en `cinema_licencias.json`. Avisa en tus términos de uso.
 
 ## Volver a crear el instalador o el .exe
 
-- **Instalador:** instala NSIS (`winget install NSIS.NSIS`) y haz doble clic en
+- **Instalador:** instala NSIS (`winget install NSIS.NSIS`) y ejecuta
   `instalador\CONSTRUIR_INSTALADOR.bat`.
-- **.exe portátil (sin instalar):** doble clic en `administrador\CONSTRUIR_EXE.bat`.
+- **.exe portátil:** `administrador\CONSTRUIR_EXE.bat`.
 - **Banners e icono:** `pip install pillow` y `python instalador\crear_imagenes.py`.
 
 ## Bueno saber
 
-- **Sin internet:** tu programa funciona hasta **7 días** desde la última verificación.
-- **Claves de prueba:** `ACEPTAR_CLAVES_DE_PRUEBA = True` acepta compras de prueba. Pon `False`
+- **Sin internet:** el programa funciona hasta **7 días** (`dias_sin_internet`).
+- **Claves de prueba:** `"aceptar_pruebas": true` acepta compras de prueba. Ponlo en `false`
   cuando vendas de verdad.
 - **Seguridad:** tu programa **no lleva ninguna clave secreta**. Si una API key o token se
-  compartió en un chat, **bórrala y crea otra**.
-- **Si algo falla en el panel:** revisa `registro.log` en `%APPDATA%\RCS-Administrador`.
+  compartió en un chat o en un archivo, **bórrala y crea otra** en la plataforma.
+- **Registro de errores del panel:** `registro.log` en
+  `%APPDATA%\Cinema Productions\Administrador de Licencias`.
 
 ## Probar sin internet
 
 ```
-pip install -r licencias/requirements.txt
-python -m unittest discover -s licencias/pruebas -v
+pip install -r requirements.txt
+python -m unittest discover -s pruebas -v
 ```
+
+56 pruebas con simuladores de Lemon Squeezy, Gumroad, Polar, Hotmart y Supabase.
+
+---
+© Cinema Productions

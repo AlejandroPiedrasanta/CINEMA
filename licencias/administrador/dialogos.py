@@ -26,7 +26,10 @@ from temas import ESP_SM
 
 __author__ = "Cinema Productions"
 
-RUTA_SQL = Path(__file__).resolve().parent.parent / "servidor" / "supabase_cinema.sql"
+_SQL = Path("servidor") / "supabase_cinema.sql"
+RUTA_SQL = next((r for r in (Path(getattr(__import__("sys"), "_MEIPASS", ".")) / _SQL,      # dentro del .exe
+                             Path(__file__).resolve().parent.parent / _SQL) if r.exists()),
+                Path(__file__).resolve().parent.parent / _SQL)
 
 
 def copiar(texto: str):

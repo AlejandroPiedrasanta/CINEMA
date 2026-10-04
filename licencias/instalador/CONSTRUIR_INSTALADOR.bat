@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-title Construir instalador del Administrador de Licencias
+title Cinema Productions - Construir instalador del Administrador de Licencias
 cd /d "%~dp0"
 
 set PY=py
@@ -9,23 +9,32 @@ set NSIS=makensis
 where makensis >nul 2>nul || set NSIS="%ProgramFiles(x86)%\NSIS\makensis.exe"
 
 echo.
-echo  [1/3] Instalando PySide6 y PyInstaller...
-%PY% -m pip install --upgrade --quiet -r ..\requirements.txt
+echo  ==========================================================
+echo   CINEMA PRODUCTIONS  -  Instalador del Administrador 5.0
+echo  ==========================================================
+echo.
+echo  [1/4] Instalando PySide6, PyInstaller y Pillow...
+%PY% -m pip install --upgrade --quiet -r ..\requirements.txt pillow
 if errorlevel 1 goto error
 
-echo  [2/3] Preparando el programa (tarda 1-2 minutos)...
+echo  [2/4] Dibujando los banners y el icono...
+%PY% crear_imagenes.py
+if errorlevel 1 goto error
+
+echo  [3/4] Preparando el programa (tarda 1-2 minutos)...
 cd ..\administrador
-set RCS_MODO=carpeta
+set CINEMA_MODO=carpeta
 %PY% -m PyInstaller --noconfirm --clean administrador.spec
 if errorlevel 1 goto error
 cd ..\instalador
 
-echo  [3/3] Creando el instalador...
+echo  [4/4] Creando el instalador...
 %NSIS% /V2 instalador.nsi
 if errorlevel 1 goto sin_nsis
 
 echo.
-echo  LISTO: "Instalar Administrador de Licencias 4.0.0.exe" en esta carpeta
+echo  LISTO: "Instalar Administrador de Licencias 5.0.0.exe" en esta carpeta
+echo  Creado por Cinema Productions.
 explorer .
 pause
 exit /b 0

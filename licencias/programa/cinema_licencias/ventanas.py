@@ -20,7 +20,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (QEasingCurve, QEvent, QObject, QParallelAnimationGroup, QPoint, QPointF,
                             QPropertyAnimation, QRect, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal)
-from PySide6.QtGui import (QColor, QGuiApplication, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
+from PySide6.QtGui import (QColor, QGuiApplication, QIcon, QImage, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap,
                            QRadialGradient)
 from PySide6.QtWidgets import (QAbstractButton, QDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget)
@@ -124,11 +124,21 @@ def icono_app() -> QIcon:
     return icono
 
 
+_LOGO_ORIGINAL = None
+
+
 def logo_cinema(alto: int = 20, color: str | None = None) -> QPixmap:
     """Logotipo 'CINEMA PRODUCTIONS' (blanco) escalado a 'alto' píxeles; con color lo vuelve a teñir."""
-    original = QPixmap(str(RECURSOS / "cinema_productions.png"))
-    if original.isNull():
+    global _LOGO_ORIGINAL
+    if _LOGO_ORIGINAL is None:     # se lee una sola vez, desde bytes (más estable en Windows/Wine)
+        _LOGO_ORIGINAL = QImage()
+        try:
+            _LOGO_ORIGINAL.loadFromData((RECURSOS / "cinema_productions.png").read_bytes(), "PNG")
+        except OSError:
+            pass
+    if _LOGO_ORIGINAL.isNull():
         return QPixmap()
+    original = QPixmap.fromImage(_LOGO_ORIGINAL)
     pantalla = QGuiApplication.primaryScreen()
     dpr = pantalla.devicePixelRatio() if pantalla else 1.0
     pm = original.scaledToHeight(max(1, int(alto * dpr)), Qt.TransformationMode.SmoothTransformation)

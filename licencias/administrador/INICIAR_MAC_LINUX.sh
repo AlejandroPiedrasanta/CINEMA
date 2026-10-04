@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Abre el Administrador de Licencias en macOS o Linux (la primera vez instala lo necesario).
+# Cinema Productions · abre el Administrador de Licencias en macOS o Linux (la primera vez instala lo necesario).
 #   bash INICIAR_MAC_LINUX.sh            → abre el panel
 #   bash INICIAR_MAC_LINUX.sh construir  → crea la app en dist/ (.app en macOS)
 set -e
 cd "$(dirname "$0")"
+echo "CINEMA PRODUCTIONS · Administrador de Licencias 5.0"
 if [ ! -d .venv ]; then
   echo "Preparando el entorno (solo la primera vez)…"
   python3 -m venv .venv
